@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="730" viewBox="0 0 1200 730">
+<rect width="1200" height="730" fill="#F8FBFF"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:700;letter-spacing:-.3px}.subtitle{font-size:14px;fill:#5E7085}.label{font-size:14px}.small{font-size:12px;fill:#5E7085}.value{font-size:14px;font-weight:700}.axis{stroke:#AFC0D2;stroke-width:1}.grid{stroke:#DCE6F1;stroke-width:1}.ci{stroke-width:2}</style>
+<text class="title" x="56" y="52">Intelligibility across two ASR families</text>
+<text class="subtitle" x="56" y="78">Semantic WER on the same 500 generated clips per system · lower is better</text>
+<circle cx="330" cy="104" r="6" fill="#1769E0"/>
+<text class="small" x="344" y="108">Whisper-large-v3</text>
+<rect x="544" y="98" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="564" y="108">wav2vec2 LV-60K</text>
+<line class="grid" x1="330.0" y1="120" x2="330.0" y2="631"/>
+<text class="small" x="330.0" y="136" text-anchor="middle">0.0%</text>
+<line class="grid" x1="454.0" y1="120" x2="454.0" y2="631"/>
+<text class="small" x="454.0" y="136" text-anchor="middle">3.0%</text>
+<line class="grid" x1="578.0" y1="120" x2="578.0" y2="631"/>
+<text class="small" x="578.0" y="136" text-anchor="middle">6.0%</text>
+<line class="grid" x1="702.0" y1="120" x2="702.0" y2="631"/>
+<text class="small" x="702.0" y="136" text-anchor="middle">9.0%</text>
+<line class="grid" x1="826.0" y1="120" x2="826.0" y2="631"/>
+<text class="small" x="826.0" y="136" text-anchor="middle">12.1%</text>
+<line class="grid" x1="950.0" y1="120" x2="950.0" y2="631"/>
+<text class="small" x="950.0" y="136" text-anchor="middle">15.1%</text>
+<text class="label" x="56" y="157">Inflect-Micro-v2</text>
+<circle cx="409.3" cy="138" r="6" fill="#1769E0"/>
+<rect x="521.9" y="148" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="146">Whisper 1.93%</text>
+<text class="small" x="968" y="163">wav2vec2 LV 4.81%</text>
+<text class="label" x="56" y="220">Inflect-Nano-v2</text>
+<circle cx="432.1" cy="201" r="6" fill="#1769E0"/>
+<rect x="557.2" y="211" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="209">Whisper 2.48%</text>
+<text class="small" x="968" y="226">wav2vec2 LV 5.67%</text>
+<text class="label" x="56" y="283">KittenTTS Nano · Bruno</text>
+<circle cx="370.0" cy="264" r="6" fill="#1769E0"/>
+<rect x="470.0" y="274" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="272">Whisper 0.97%</text>
+<text class="small" x="968" y="289">wav2vec2 LV 3.55%</text>
+<text class="label" x="56" y="346">KittenTTS Nano · Hugo</text>
+<circle cx="377.1" cy="327" r="6" fill="#1769E0"/>
+<rect x="473.2" y="337" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="335">Whisper 1.15%</text>
+<text class="small" x="968" y="352">wav2vec2 LV 3.63%</text>
+<text class="label" x="56" y="409">Piper · Ryan Low</text>
+<circle cx="425.8" cy="390" r="6" fill="#1769E0"/>
+<rect x="599.6" y="400" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="398">Whisper 2.33%</text>
+<text class="small" x="968" y="415">wav2vec2 LV 6.70%</text>
+<text class="label" x="56" y="472">Piper · Danny Low</text>
+<circle cx="404.6" cy="453" r="6" fill="#1769E0"/>
+<rect x="542.3" y="463" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="461">Whisper 1.81%</text>
+<text class="small" x="968" y="478">wav2vec2 LV 5.31%</text>
+<text class="label" x="56" y="535">Supertonic 3 · James · 3-step</text>
+<line x1="330" y1="516" x2="938" y2="516" stroke="#1769E0" stroke-width="2" stroke-dasharray="6 6"/>
+<path d="M 932 511 L 945 516 L 932 521" fill="none" stroke="#1769E0" stroke-width="2"/>
+<rect x="877.6" y="526" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="524">Whisper 692.82%</text>
+<text class="small" x="968" y="541">wav2vec2 LV 13.47%</text>
+<text class="label" x="56" y="598">Supertonic 3 · James · 8-step</text>
+<line x1="330" y1="579" x2="938" y2="579" stroke="#1769E0" stroke-width="2" stroke-dasharray="6 6"/>
+<path d="M 932 574 L 945 579 L 932 584" fill="none" stroke="#1769E0" stroke-width="2"/>
+<rect x="478.7" y="589" width="12" height="12" fill="#E28B38"/>
+<text class="small" x="968" y="587">Whisper 622.52%</text>
+<text class="small" x="968" y="604">wav2vec2 LV 3.76%</text>
+<text class="small" x="56" y="704">Large disagreement identifies ASR sensitivity rather than a hidden aggregate score; all hypotheses and per-clip errors ship in the raw reports.</text>
+</svg>

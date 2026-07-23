@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="590" viewBox="0 0 1200 590">
+<rect width="1200" height="590" rx="18" fill="#F8FBFF"/>
+<style>text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:750;letter-spacing:-.5px}.subtitle{font-size:14px;fill:#61738A}.label{font-size:14px;font-weight:600}.small{font-size:12px;fill:#61738A}.value{font-size:14px;font-weight:750}.grid{stroke:#DCE6F1;stroke-width:1}</style>
+<rect x="0" y="0" width="8" height="590" rx="4" fill="#1769E0"/>
+<text class="title" x="56" y="52">Intelligibility on unseen text</text>
+<text class="subtitle" x="56" y="78">Two-ASR consensus semantic WER · Qwen3-ASR + Nemotron 3.5 · 400 matched prompts</text>
+<line class="grid" x1="360.0" y1="108" x2="360.0" y2="515"/>
+<text class="small" x="360.0" y="104" text-anchor="middle">0%</text>
+<line class="grid" x1="500.0" y1="108" x2="500.0" y2="515"/>
+<text class="small" x="500.0" y="104" text-anchor="middle">1%</text>
+<line class="grid" x1="640.0" y1="108" x2="640.0" y2="515"/>
+<text class="small" x="640.0" y="104" text-anchor="middle">2%</text>
+<line class="grid" x1="780.0" y1="108" x2="780.0" y2="515"/>
+<text class="small" x="780.0" y="104" text-anchor="middle">3%</text>
+<line class="grid" x1="920.0" y1="108" x2="920.0" y2="515"/>
+<text class="small" x="920.0" y="104" text-anchor="middle">4%</text>
+<line class="grid" x1="1060.0" y1="108" x2="1060.0" y2="515"/>
+<text class="small" x="1060.0" y="104" text-anchor="middle">5%</text>
+<text class="label" x="56" y="138">Supertonic 3 · M2 · 8-step</text>
+<line x1="360" y1="132" x2="752.9" y2="132" stroke="#8B9AA9" stroke-width="4"/>
+<circle cx="752.9" cy="132" r="8" fill="#8B9AA9"/>
+<text class="value" x="1076" y="138">2.81%</text>
+<text class="label" x="56" y="206">KittenTTS Nano · two-voice mean</text>
+<line x1="360" y1="200" x2="790.4" y2="200" stroke="#8B9AA9" stroke-width="4"/>
+<circle cx="790.4" cy="200" r="8" fill="#8B9AA9"/>
+<text class="value" x="1076" y="206">3.07%</text>
+<text class="label" x="56" y="274">Inflect-Micro-v2</text>
+<line x1="360" y1="268" x2="918.1" y2="268" stroke="#1769E0" stroke-width="4"/>
+<circle cx="918.1" cy="268" r="8" fill="#1769E0"/>
+<text class="value" x="1076" y="274">3.99%</text>
+<text class="label" x="56" y="342">Piper Low · two-voice mean</text>
+<line x1="360" y1="336" x2="939.1" y2="336" stroke="#8B9AA9" stroke-width="4"/>
+<circle cx="939.1" cy="336" r="8" fill="#8B9AA9"/>
+<text class="value" x="1076" y="342">4.14%</text>
+<text class="label" x="56" y="410">Inflect-Nano-v2</text>
+<line x1="360" y1="404" x2="948.9" y2="404" stroke="#1769E0" stroke-width="4"/>
+<circle cx="948.9" cy="404" r="8" fill="#1769E0"/>
+<text class="value" x="1076" y="410">4.21%</text>
+<text class="label" x="56" y="478">Supertonic 3 · M2 · 3-step</text>
+<line x1="360" y1="472" x2="995.1" y2="472" stroke="#8B9AA9" stroke-width="4"/>
+<circle cx="995.1" cy="472" r="8" fill="#8B9AA9"/>
+<text class="value" x="1076" y="478">4.54%</text>
+<text class="small" x="56" y="560">Lower is better. Whisper is excluded from this headline for every system; the complete three-ASR audit is reported separately.</text>
+</svg>

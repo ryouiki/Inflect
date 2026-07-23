@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500">
+<rect width="1200" height="500" rx="18" fill="#F8FBFF"/>
+<style>text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:750;letter-spacing:-.5px}.subtitle{font-size:14px;fill:#61738A}.label{font-size:14px;font-weight:600}.small{font-size:12px;fill:#61738A}.value{font-size:14px;font-weight:750}.grid{stroke:#DCE6F1;stroke-width:1}</style>
+<rect x="0" y="0" width="8" height="500" rx="4" fill="#1769E0"/>
+<text class="title" x="56" y="52">Complete model weight footprint</text>
+<text class="subtitle" x="56" y="78">One entry per deployable model family · lower is smaller</text>
+<line class="grid" x1="300.0" y1="104" x2="300.0" y2="410"/>
+<text class="small" x="300.0" y="100" text-anchor="middle">0 MB</text>
+<line class="grid" x1="485.7142857142857" y1="104" x2="485.7142857142857" y2="410"/>
+<text class="small" x="485.7142857142857" y="100" text-anchor="middle">100 MB</text>
+<line class="grid" x1="671.4285714285714" y1="104" x2="671.4285714285714" y2="410"/>
+<text class="small" x="671.4285714285714" y="100" text-anchor="middle">200 MB</text>
+<line class="grid" x1="857.1428571428571" y1="104" x2="857.1428571428571" y2="410"/>
+<text class="small" x="857.1428571428571" y="100" text-anchor="middle">300 MB</text>
+<line class="grid" x1="1042.857142857143" y1="104" x2="1042.857142857143" y2="410"/>
+<text class="small" x="1042.857142857143" y="100" text-anchor="middle">400 MB</text>
+<text class="label" x="56" y="142">Inflect-Nano-v2</text>
+<rect x="300" y="126" width="29.7" height="22" rx="5" fill="#1769E0"/>
+<text class="value" x="341.7" y="143">16.0 MB</text>
+<text class="label" x="56" y="206">Inflect-Micro-v2</text>
+<rect x="300" y="190" width="69.7" height="22" rx="5" fill="#1769E0"/>
+<text class="value" x="381.7" y="207">37.5 MB</text>
+<text class="label" x="56" y="270">KittenTTS Nano</text>
+<rect x="300" y="254" width="105.4" height="22" rx="5" fill="#8B9AA9"/>
+<text class="value" x="417.4" y="271">56.8 MB</text>
+<text class="label" x="56" y="334">Piper Low</text>
+<rect x="300" y="318" width="117.2" height="22" rx="5" fill="#8B9AA9"/>
+<text class="value" x="429.2" y="335">63.1 MB</text>
+<text class="label" x="56" y="398">Supertonic 3</text>
+<rect x="300" y="382" width="739.3" height="22" rx="5" fill="#8B9AA9"/>
+<text class="value" x="1051.3" y="399">398.1 MB</text>
+<text class="small" x="56" y="470">Voice variants sharing identical weights are merged. Inflect totals include the neural waveform decoder.</text>
+</svg>

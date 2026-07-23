@@ -1,119 +1,70 @@
-# Publishing
+# Publishing Inflect v2
 
-This project mixes real source code with large local artifacts and private research inputs. Public publishing has to separate those cleanly.
+Inflect v2 is an open-weight release split across GitHub and Hugging Face. Keep
+the deployable product public while retaining private corpus construction,
+reference material, filtering infrastructure, and the full optimization recipe.
 
-## Publish Split
+## Release Surfaces
 
-### GitHub should contain
+| Surface | Contents |
+| --- | --- |
+| GitHub | Public source, evaluation/release tooling, architecture notes, documentation |
+| Hugging Face models | Frozen weights, self-contained inference, samples, raw evaluation, integrity manifest |
+| Hugging Face Space | Private preflight or public interactive inference after owner approval |
+| Local only | Raw checkpoints, generated corpora, private references, credentials, rented-host state |
 
-- source code
-- scripts
-- docs
-- patch files for local external dependencies
-- lightweight config and metadata files
+## Frozen v2 Artifacts
 
-### Hugging Face Datasets should contain
+- [Inflect-Micro-v2](https://huggingface.co/owensong/Inflect-Micro-v2):
+  9,356,513 complete inference parameters, 37.53 MB FP32 weights.
+- [Inflect-Nano-v2](https://huggingface.co/owensong/Inflect-Nano-v2):
+  3,966,721 complete inference parameters, 15.97 MB FP32 weights.
+- [Inflect v2 playground](https://huggingface.co/spaces/owensong/Inflect-v2):
+  exact frozen Micro and Nano checkpoints.
 
-- prepared VoxCPM synthetic datasets in `AudioFolder` layout
-- dataset cards
-- dataset-specific licensing and provenance notes
+Both model packages include their integrated 24 kHz waveform decoder. They do
+not download an external vocoder or inference-time teacher.
 
-### Keep local only
+## Visibility Rule
 
-- `outputs/`
-- `reference_voices/`
-- checkpoints
-- virtual environments
-- local external repos such as `ZipVoice-official/` and `third_party/`
+Preparing and uploading a private release candidate is allowed. Changing a
+model, Space, collection, or repository from private to public is a separate
+owner action and must never be bundled into routine release preparation.
 
-## Current GitHub State
+## Required Gates
 
-The publish branch currently contains the release scaffold and should be expanded with the real source/docs set.
+1. Freeze exact checkpoints and record full SHA-256 hashes.
+2. Validate inference from a clean downloaded package.
+3. Verify the Python API, CLI, deterministic seed, long-text path, and WAV output.
+4. Render fixed held-out samples with exact transcripts.
+5. Publish matched intelligibility, predicted-quality, human-preference, footprint,
+   and named-hardware runtime evidence.
+6. Check every chart against its raw report and document exclusions.
+7. Confirm licensing, third-party notices, limitations, and responsible-use text.
+8. Upload privately, download again, and repeat smoke tests.
+9. Only then make visibility changes and publish launch posts.
 
-Branch:
+## Supported Release Formats
 
-- `codex/publish-scaffold`
+The v2.0.0 package supports PyTorch FP32 inference on CPU and CUDA. FP16/BF16,
+ONNX, integer quantization, Core ML, TFLite, and GGUF are not release formats
+until they pass the same intelligibility and listening gates as FP32. GGUF is
+not a natural container for this convolution-heavy VITS-family waveform model.
 
-Draft PR:
+## Do Not Publish
 
-- [PR #1](https://github.com/owenawsong/Inflect/pull/1)
+- credentials, tokens, SSH material, or rented-instance connection details;
+- private reference voices or source-speaker material;
+- raw generated corpora or unfinished checkpoints;
+- claims of female voices, voice cloning, multilingual support, streaming, or
+  validated quantization;
+- teacher or corpus-generation internals outside the documented open-weight scope.
 
-## Local ZipVoice Fixes
+## Release Order
 
-The current teacher fine-tuning path depends on local changes to ZipVoice that are not committed inside this repo's main tree because `ZipVoice-official/` is a nested local checkout.
-
-Those changes are preserved here:
-
-- [zipvoice-local-fixes.patch](patches/zipvoice-local-fixes.patch)
-
-Apply that patch to a local `ZipVoice-official/` checkout before running the current fine-tuning workflow.
-
-## Dataset Release Strategy
-
-The active dataset run is:
-
-- `outputs/voxcpm_dataset/20260411_large_text_v1`
-
-It is usable, but it is an active working dataset rather than a clean frozen public snapshot.
-
-The better public-release flow is:
-
-1. freeze a snapshot
-2. write a public dataset card
-3. attach a clear license/provenance notice
-4. upload that frozen snapshot to Hugging Face
-
-Use:
-
-- [prepare_public_voxcpm_dataset.py](scripts/prepare_public_voxcpm_dataset.py)
-- [upload_voxcpm_dataset.py](scripts/upload_voxcpm_dataset.py)
-
-## Dataset Licensing
-
-Do not label the public dataset `apache-2.0`.
-
-Reason:
-
-- the repo code license is not automatically the dataset license
-- the dataset is synthetic audio generated from reference voice prompts
-- voice/source provenance is mixed and must be disclosed honestly
-
-For the current public dataset release path, the safe default is:
-
-- dataset card tag: `license: other`
-- explicit release note explaining:
-  - reference voice prompts are not bundled
-  - generated audio is synthetic
-  - source voice rights and upstream model terms still matter
-
-## Uploading the Dataset to Hugging Face
-
-Target username:
-
-- `owensong`
-
-Example public upload after preparing a snapshot:
-
-```powershell
-cd Inflect
-$env:HF_TOKEN = "your_token_here"
-.\.venv-voxcpm\Scripts\python.exe scripts\prepare_public_voxcpm_dataset.py --dataset-dir outputs\voxcpm_dataset\20260411_large_text_v1 --out-dir outputs\publish\voxcpm2_synthetic_en_v1_public
-.\.venv-voxcpm\Scripts\python.exe scripts\upload_voxcpm_dataset.py --dataset-dir outputs\publish\voxcpm2_synthetic_en_v1_public --repo-id owensong/voxcpm2-synthetic-en-v1
-```
-
-## GitHub Cleanup Rules
-
-- do not commit `outputs/`
-- do not commit `reference_voices/`
-- do not commit checkpoints
-- do not commit `.pyc` or `__pycache__`
-- do not commit full vendor repos unless intentionally vendoring them
-
-## Recommended Publish Order
-
-1. finish repo docs and structure cleanup
-2. stage only publishable code/docs
-3. push GitHub branch updates
-4. freeze a dataset snapshot
-5. upload the public dataset to Hugging Face
-6. link the dataset from the GitHub README
+1. Finish and validate the private Hugging Face packages.
+2. Tag the exact model commits as `v2.0.0`.
+3. Push the reviewed GitHub release branch.
+4. Verify model cards, audio, charts, and the Space in the Hub UI.
+5. Owner changes model and Space visibility.
+6. Publish the release and announcement copy.

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610">
+<rect width="1200" height="610" fill="#F8FBFF"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:700;letter-spacing:-.3px}.subtitle{font-size:14px;fill:#5E7085}.label{font-size:14px}.small{font-size:12px;fill:#5E7085}.value{font-size:14px;font-weight:700}.axis{stroke:#AFC0D2;stroke-width:1}.grid{stroke:#DCE6F1;stroke-width:1}.ci{stroke-width:2}</style>
+<text class="title" x="56" y="52">Warm CPU synthesis throughput</text>
+<text class="subtitle" x="56" y="78">AMD Ryzen 9 3900X · 12 threads · 48 matched prompts · higher is faster</text>
+<line class="grid" x1="330.0" y1="102" x2="330.0" y2="486"/>
+<text class="small" x="330.0" y="98" text-anchor="middle">0.0×</text>
+<line class="grid" x1="484.0" y1="102" x2="484.0" y2="486"/>
+<text class="small" x="484.0" y="98" text-anchor="middle">4.2×</text>
+<line class="grid" x1="638.0" y1="102" x2="638.0" y2="486"/>
+<text class="small" x="638.0" y="98" text-anchor="middle">8.3×</text>
+<line class="grid" x1="792.0" y1="102" x2="792.0" y2="486"/>
+<text class="small" x="792.0" y="98" text-anchor="middle">12.5×</text>
+<line class="grid" x1="946.0" y1="102" x2="946.0" y2="486"/>
+<text class="small" x="946.0" y="98" text-anchor="middle">16.6×</text>
+<line class="grid" x1="1100.0" y1="102" x2="1100.0" y2="486"/>
+<text class="small" x="1100.0" y="98" text-anchor="middle">20.8×</text>
+<text class="label" x="56" y="137">Piper Low · 2-voice mean</text>
+<rect x="330" y="122" width="687.5" height="22" fill="#8B9AA9"/>
+<text class="value" x="1029.5" y="139">18.58× real time</text>
+<text class="small" x="56" y="157">mean p95 0.363 s</text>
+<text class="label" x="56" y="201">KittenTTS Nano · 2-voice mean</text>
+<rect x="330" y="186" width="290.7" height="22" fill="#8B9AA9"/>
+<text class="value" x="632.7" y="203">7.85× real time</text>
+<text class="small" x="56" y="221">mean p95 1.074 s</text>
+<text class="label" x="56" y="265">Supertonic 3 · 3-step</text>
+<rect x="330" y="250" width="204.1" height="22" fill="#8B9AA9"/>
+<text class="value" x="546.1" y="267">5.51× real time</text>
+<text class="small" x="56" y="285">mean p95 1.494 s</text>
+<text class="label" x="56" y="329">Supertonic 3 · 8-step</text>
+<rect x="330" y="314" width="93.1" height="22" fill="#8B9AA9"/>
+<text class="value" x="435.1" y="331">2.51× real time</text>
+<text class="small" x="56" y="349">mean p95 3.181 s</text>
+<text class="label" x="56" y="393">Inflect-Nano-v2</text>
+<rect x="330" y="378" width="58.7" height="22" fill="#1769E0"/>
+<text class="value" x="400.7" y="395">1.59× real time</text>
+<text class="small" x="56" y="413">mean p95 7.207 s</text>
+<text class="label" x="56" y="457">Inflect-Micro-v2</text>
+<rect x="330" y="442" width="58.3" height="22" fill="#1769E0"/>
+<text class="value" x="400.3" y="459">1.58× real time</text>
+<text class="small" x="56" y="477">mean p95 7.281 s</text>
+<text class="small" x="56" y="580">1.0× is real time. Runtime includes text processing and waveform generation; two-voice families are equal-weight means.</text>
+</svg>
