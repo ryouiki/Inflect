@@ -205,7 +205,7 @@ not in the GitHub repository.
 - [Technical report](docs/INFLECT_V2_TECHNICAL_REPORT.md)
 - [Release readiness and limitations](docs/INFLECT_V2_RELEASE_READINESS_20260721.md)
 - [Publication runbook](docs/INFLECT_V2_PUBLICATION_RUNBOOK_20260721.md)
-- [Technical report outline](docs/INFLECT_V2_TECHNICAL_REPORT_OUTLINE.md)
+- [Release notes](docs/INFLECT_V2_RELEASE_NOTES_20260721.md)
 - [Hero-image generation prompt](docs/INFLECT_V2_HERO_IMAGE_PROMPT.md)
 - [Publishing boundaries](PUBLISHING.md)
 - [Security policy](SECURITY.md)
