@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+<rect width="1200" height="760" rx="18" fill="#F8FBFF"/>
+<style>text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:750;letter-spacing:-.5px}.subtitle{font-size:14px;fill:#61738A}.label{font-size:14px;font-weight:600}.small{font-size:12px;fill:#61738A}.value{font-size:14px;font-weight:750}.grid{stroke:#DCE6F1;stroke-width:1}</style>
+<rect x="0" y="0" width="8" height="760" rx="4" fill="#1769E0"/>
+<text class="title" x="56" y="52">Community blind listening</text>
+<text class="subtitle" x="56" y="78">Anonymous pairwise preference · hidden system names · randomized left/right order</text>
+<line class="grid" x1="330.0" y1="108" x2="330.0" y2="682"/>
+<text class="small" x="330.0" y="104" text-anchor="middle">0%</text>
+<line class="grid" x1="517.5" y1="108" x2="517.5" y2="682"/>
+<text class="small" x="517.5" y="104" text-anchor="middle">25%</text>
+<line class="grid" x1="705.0" y1="108" x2="705.0" y2="682"/>
+<text class="small" x="705.0" y="104" text-anchor="middle">50%</text>
+<line class="grid" x1="892.5" y1="108" x2="892.5" y2="682"/>
+<text class="small" x="892.5" y="104" text-anchor="middle">75%</text>
+<line class="grid" x1="1080.0" y1="108" x2="1080.0" y2="682"/>
+<text class="small" x="1080.0" y="104" text-anchor="middle">100%</text>
+<text class="label" x="56" y="146">KittenTTS Nano (Hugo)</text>
+<rect x="330" y="130" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="130" width="534.1" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="145">71.2%</text>
+<text class="small" x="56" y="165">22W · 8L · 3T</text>
+<text class="label" x="56" y="207">Inflect-Micro-v2</text>
+<rect x="330" y="191" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="191" width="496.3" height="18" rx="9" fill="#1769E0"/>
+<text class="value" x="1098" y="206">66.2%</text>
+<text class="small" x="56" y="226">21W · 10L · 3T</text>
+<text class="label" x="56" y="268">Inflect-Nano-v2</text>
+<rect x="330" y="252" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="252" width="479.2" height="18" rx="9" fill="#1769E0"/>
+<text class="value" x="1098" y="267">63.9%</text>
+<text class="small" x="56" y="287">22W · 12L · 2T</text>
+<text class="label" x="56" y="329">Supertonic 3 (James, 8-step)</text>
+<rect x="330" y="313" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="313" width="423.4" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="328">56.5%</text>
+<text class="small" x="56" y="348">16W · 12L · 3T</text>
+<text class="label" x="56" y="390">KittenTTS Nano (Bruno)</text>
+<rect x="330" y="374" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="374" width="406.2" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="389">54.2%</text>
+<text class="small" x="56" y="409">16W · 13L · 7T</text>
+<text class="label" x="56" y="451">Piper Danny Low</text>
+<rect x="330" y="435" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="435" width="406.2" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="450">54.2%</text>
+<text class="small" x="56" y="470">10W · 8L · 6T</text>
+<text class="label" x="56" y="512">Piper Ryan Low</text>
+<rect x="330" y="496" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="496" width="386.4" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="511">51.5%</text>
+<text class="small" x="56" y="531">14W · 13L · 6T</text>
+<text class="label" x="56" y="573">Inflect-Nano-v1</text>
+<rect x="330" y="557" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="557" width="199.2" height="18" rx="9" fill="#1769E0"/>
+<text class="value" x="1098" y="572">26.6%</text>
+<text class="small" x="56" y="592">7W · 22L · 3T</text>
+<text class="label" x="56" y="634">Supertonic 3 (James, 3-step)</text>
+<rect x="330" y="618" width="750" height="18" rx="9" fill="#E9F0F7"/>
+<rect x="330" y="618" width="46.9" height="18" rx="9" fill="#8B9AA9"/>
+<text class="value" x="1098" y="633">6.2%</text>
+<text class="small" x="56" y="653">1W · 29L · 2T</text>
+<text class="small" x="56" y="730">Ties count as half a win. This is descriptive community evidence, not a formal MOS study.</text>
+</svg>

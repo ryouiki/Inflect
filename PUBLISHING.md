@@ -1,115 +1,70 @@
-# Publishing
+# Publishing Inflect v2
 
-This project mixes source code, released model packages, large generated artifacts, and private research inputs. Public publishing has to separate those cleanly.
+Inflect v2 is an open-weight release split across GitHub and Hugging Face. Keep
+the deployable product public while retaining private corpus construction,
+reference material, filtering infrastructure, and the full optimization recipe.
 
-## Publish Split
+## Release Surfaces
 
-### GitHub Should Contain
+| Surface | Contents |
+| --- | --- |
+| GitHub | Public source, evaluation/release tooling, architecture notes, documentation |
+| Hugging Face models | Frozen weights, self-contained inference, samples, raw evaluation, integrity manifest |
+| Hugging Face Space | Private preflight or public interactive inference after owner approval |
+| Local only | Raw checkpoints, generated corpora, private references, credentials, rented-host state |
 
-- source code
-- scripts
-- docs
-- patch files for local external dependencies
-- lightweight config and metadata files
-- links to released Hugging Face models and datasets
+## Frozen v2 Artifacts
 
-### Hugging Face Models Should Contain
+- [Inflect-Micro-v2](https://huggingface.co/owensong/Inflect-Micro-v2):
+  9,356,513 complete inference parameters, 37.53 MB FP32 weights.
+- [Inflect-Nano-v2](https://huggingface.co/owensong/Inflect-Nano-v2):
+  3,966,721 complete inference parameters, 15.97 MB FP32 weights.
+- [Inflect v2 playground](https://huggingface.co/spaces/owensong/Inflect-v2):
+  exact frozen Micro and Nano checkpoints.
 
-- runnable model weights
-- model card
-- inference entry points
-- examples or sample gallery assets
-- model-specific license and limitations
+Both model packages include their integrated 24 kHz waveform decoder. They do
+not download an external vocoder or inference-time teacher.
 
-Current released model:
+## Visibility Rule
 
-- [owensong/Inflect-Nano-v1](https://huggingface.co/owensong/Inflect-Nano-v1)
+Preparing and uploading a private release candidate is allowed. Changing a
+model, Space, collection, or repository from private to public is a separate
+owner action and must never be bundled into routine release preparation.
 
-### Hugging Face Datasets Should Contain
+## Required Gates
 
-- frozen synthetic or curated dataset snapshots
-- dataset cards
-- dataset-specific licensing and provenance notes
-- generation settings when audio is teacher-generated
+1. Freeze exact checkpoints and record full SHA-256 hashes.
+2. Validate inference from a clean downloaded package.
+3. Verify the Python API, CLI, deterministic seed, long-text path, and WAV output.
+4. Render fixed held-out samples with exact transcripts.
+5. Publish matched intelligibility, predicted-quality, human-preference, footprint,
+   and named-hardware runtime evidence.
+6. Check every chart against its raw report and document exclusions.
+7. Confirm licensing, third-party notices, limitations, and responsible-use text.
+8. Upload privately, download again, and repeat smoke tests.
+9. Only then make visibility changes and publish launch posts.
 
-### Keep Local Only
+## Supported Release Formats
 
-- `outputs/`
-- `reference_voices/`
-- raw checkpoints
-- virtual environments
-- local external repos such as `ZipVoice-official/` and `third_party/`
-- unfinished teacher-generation runs
-- private reference audio
+The v2.0.0 package supports PyTorch FP32 inference on CPU and CUDA. FP16/BF16,
+ONNX, integer quantization, Core ML, TFLite, and GGUF are not release formats
+until they pass the same intelligibility and listening gates as FP32. GGUF is
+not a natural container for this convolution-heavy VITS-family waveform model.
 
-## Current Public Status
+## Do Not Publish
 
-Inflect-Nano-v1 is released on Hugging Face as a complete 4.63M-parameter English text-to-waveform stack.
+- credentials, tokens, SSH material, or rented-instance connection details;
+- private reference voices or source-speaker material;
+- raw generated corpora or unfinished checkpoints;
+- claims of female voices, voice cloning, multilingual support, streaming, or
+  validated quantization;
+- teacher or corpus-generation internals outside the documented open-weight scope.
 
-Inflect-Nano-v2 is active research. Do not publish v2 claims as release facts until a frozen checkpoint, sample gallery, evaluation notes, and model card are ready.
+## Release Order
 
-## Release Rules
-
-- Do not commit model weights directly to GitHub.
-- Do not commit generated audio datasets directly to GitHub.
-- Do not label synthetic datasets `apache-2.0` unless the dataset license has been separately reviewed.
-- Do not claim voice cloning for v1. The released v1 model is a single English male voice.
-- Do not claim production quality. v1 is an experimental tiny-model release.
-- Do not claim v2 is better than v1 until fixed-prompt listening and objective checks support it.
-
-## Dataset Licensing
-
-Dataset licensing is separate from repository licensing.
-
-Reason:
-
-- the repo code license is not automatically the dataset license
-- synthetic audio can still inherit constraints from reference voices, prompts, or teacher models
-- source voice rights and upstream model terms must be disclosed honestly
-
-Safe default for public synthetic dataset cards:
-
-- dataset card tag: `license: other`
-- explicit release note explaining:
-  - reference voice prompts are not bundled
-  - generated audio is synthetic
-  - source voice rights and upstream model terms still matter
-
-## Release Checklist
-
-Before publishing a model package to Hugging Face:
-
-1. Freeze the exact checkpoint files.
-2. Render a fixed sample gallery.
-3. Run the objective diagnostics used by the project.
-4. Write a model card with real limitations.
-5. Verify clean install and CLI inference from a fresh environment.
-6. Link the Hugging Face release from the GitHub README.
-
-Before publishing a dataset package to Hugging Face:
-
-1. Freeze a snapshot.
-2. Remove private reference material.
-3. Write a public dataset card.
-4. Include provenance and generation settings.
-5. Verify the manifest/audio layout loads cleanly.
-6. Link the dataset only after the upload is complete.
-
-## GitHub Cleanup Rules
-
-- do not commit `outputs/`
-- do not commit `reference_voices/`
-- do not commit checkpoints
-- do not commit `.pyc` or `__pycache__`
-- do not commit full vendor repos unless intentionally vendoring them
-- do not commit credentials, API keys, tokens, or private SSH material
-
-## Recommended Publish Order
-
-1. Update GitHub source/docs.
-2. Freeze model or dataset artifact locally.
-3. Build a clean Hugging Face package.
-4. Test from a fresh clone or fresh environment.
-5. Upload to Hugging Face.
-6. Link the release from GitHub.
-7. Only then announce or benchmark publicly.
+1. Finish and validate the private Hugging Face packages.
+2. Tag the exact model commits as `v2.0.0`.
+3. Push the reviewed GitHub release branch.
+4. Verify model cards, audio, charts, and the Space in the Hub UI.
+5. Owner changes model and Space visibility.
+6. Publish the release and announcement copy.

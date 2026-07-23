@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1090" viewBox="0 0 1200 1090">
+<rect width="1200" height="1090" fill="#F8FBFF"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:700;letter-spacing:-.3px}.subtitle{font-size:14px;fill:#5E7085}.label{font-size:14px}.small{font-size:12px;fill:#5E7085}.value{font-size:14px;font-weight:700}.axis{stroke:#AFC0D2;stroke-width:1}.grid{stroke:#DCE6F1;stroke-width:1}.ci{stroke-width:2}</style>
+<text class="title" x="56" y="52">Where transcription errors remain</text>
+<text class="subtitle" x="56" y="78">Semantic WER by prompt category · identical held-out text · Whisper-large-v3</text>
+<line class="grid" x1="310.0" y1="108" x2="310.0" y2="1040"/>
+<text class="small" x="310.0" y="104" text-anchor="middle">0.0%</text>
+<line class="grid" x1="467.0" y1="108" x2="467.0" y2="1040"/>
+<text class="small" x="467.0" y="104" text-anchor="middle">2.8%</text>
+<line class="grid" x1="624.0" y1="108" x2="624.0" y2="1040"/>
+<text class="small" x="624.0" y="104" text-anchor="middle">5.6%</text>
+<line class="grid" x1="781.0" y1="108" x2="781.0" y2="1040"/>
+<text class="small" x="781.0" y="104" text-anchor="middle">8.4%</text>
+<line class="grid" x1="938.0" y1="108" x2="938.0" y2="1040"/>
+<text class="small" x="938.0" y="104" text-anchor="middle">11.2%</text>
+<line class="grid" x1="1095.0" y1="108" x2="1095.0" y2="1040"/>
+<text class="small" x="1095.0" y="104" text-anchor="middle">14.0%</text>
+<text class="label" x="56" y="145">Numbers</text>
+<rect x="310" y="127" width="700.9" height="14" fill="#1769E0"/>
+<rect x="310" y="147" width="525.7" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="139">Micro 12.50%</text>
+<text class="small" x="1107" y="159">Nano 9.38%</text>
+<text class="label" x="56" y="207">Rare Words</text>
+<rect x="310" y="189" width="295.1" height="14" fill="#1769E0"/>
+<rect x="310" y="209" width="491.9" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="201">Micro 5.26%</text>
+<text class="small" x="1107" y="221">Nano 8.77%</text>
+<text class="label" x="56" y="269">Short</text>
+<rect x="310" y="251" width="160.2" height="14" fill="#1769E0"/>
+<rect x="310" y="271" width="427.2" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="263">Micro 2.86%</text>
+<text class="small" x="1107" y="283">Nano 7.62%</text>
+<text class="label" x="56" y="331">Names Places</text>
+<rect x="310" y="313" width="393.5" height="14" fill="#1769E0"/>
+<rect x="310" y="333" width="295.1" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="325">Micro 7.02%</text>
+<text class="small" x="1107" y="345">Nano 5.26%</text>
+<text class="label" x="56" y="393">Homographs</text>
+<rect x="310" y="375" width="160.2" height="14" fill="#1769E0"/>
+<rect x="310" y="395" width="240.3" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="387">Micro 2.86%</text>
+<text class="small" x="1107" y="407">Nano 4.29%</text>
+<text class="label" x="56" y="455">Phonetic Balance</text>
+<rect x="310" y="437" width="145.1" height="14" fill="#1769E0"/>
+<rect x="310" y="457" width="177.2" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="449">Micro 2.59%</text>
+<text class="small" x="1107" y="469">Nano 3.16%</text>
+<text class="label" x="56" y="517">Technical</text>
+<rect x="310" y="499" width="175.2" height="14" fill="#1769E0"/>
+<rect x="310" y="519" width="175.2" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="511">Micro 3.12%</text>
+<text class="small" x="1107" y="531">Nano 3.12%</text>
+<text class="label" x="56" y="579">Narrative</text>
+<rect x="310" y="561" width="15.9" height="14" fill="#1769E0"/>
+<rect x="310" y="581" width="63.7" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="573">Micro 0.28%</text>
+<text class="small" x="1107" y="593">Nano 1.14%</text>
+<text class="label" x="56" y="641">Conversational</text>
+<rect x="310" y="623" width="0.0" height="14" fill="#1769E0"/>
+<rect x="310" y="643" width="54.4" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="635">Micro 0.00%</text>
+<text class="small" x="1107" y="655">Nano 0.97%</text>
+<text class="label" x="56" y="703">Long Range</text>
+<rect x="310" y="685" width="0.0" height="14" fill="#1769E0"/>
+<rect x="310" y="705" width="46.3" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="697">Micro 0.00%</text>
+<text class="small" x="1107" y="717">Nano 0.83%</text>
+<text class="label" x="56" y="765">Long</text>
+<rect x="310" y="747" width="38.9" height="14" fill="#1769E0"/>
+<rect x="310" y="767" width="38.9" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="759">Micro 0.69%</text>
+<text class="small" x="1107" y="779">Nano 0.69%</text>
+<text class="label" x="56" y="827">Question</text>
+<rect x="310" y="809" width="0.0" height="14" fill="#1769E0"/>
+<rect x="310" y="829" width="34.0" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="821">Micro 0.00%</text>
+<text class="small" x="1107" y="841">Nano 0.61%</text>
+<text class="label" x="56" y="889">Descriptive</text>
+<rect x="310" y="871" width="24.8" height="14" fill="#1769E0"/>
+<rect x="310" y="891" width="24.8" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="883">Micro 0.44%</text>
+<text class="small" x="1107" y="903">Nano 0.44%</text>
+<text class="label" x="56" y="951">Emotional</text>
+<rect x="310" y="933" width="0.0" height="14" fill="#1769E0"/>
+<rect x="310" y="953" width="17.0" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="945">Micro 0.00%</text>
+<text class="small" x="1107" y="965">Nano 0.30%</text>
+<text class="label" x="56" y="1013">Punctuation</text>
+<rect x="310" y="995" width="0.0" height="14" fill="#1769E0"/>
+<rect x="310" y="1015" width="0.0" height="14" fill="#78AEEF"/>
+<text class="small" x="1107" y="1007">Micro 0.00%</text>
+<text class="small" x="1107" y="1027">Nano 0.00%</text>
+<text class="small" x="56" y="1062">Category results diagnose weaknesses; they are not pooled with UTMOS22 or human preference.</text>
+</svg>

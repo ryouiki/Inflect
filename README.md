@@ -1,207 +1,234 @@
 <p align="center">
-  <img src="assets/inflect-hero.png" alt="Inflect hero banner">
+  <img src="assets/inflect-v2-repository-hero.png" alt="Inflect v2 — complete local speech in exceptionally small models">
+</p>
+
+<h1 align="center">Inflect v2</h1>
+<p align="center"><strong>Complete 24 kHz English text-to-waveform models at 3.97M and 9.36M parameters.</strong><br>
+Small enough to run locally. Complete enough to need no external vocoder, server model, or inference-time teacher.</p>
+
+<p align="center">
+  <a href="https://huggingface.co/owensong/Inflect-Micro-v2"><img alt="Inflect Micro v2" src="https://img.shields.io/badge/Micro_9.36M-1769E0?style=for-the-badge&logo=huggingface&logoColor=white"></a>
+  <a href="https://huggingface.co/owensong/Inflect-Nano-v2"><img alt="Inflect Nano v2" src="https://img.shields.io/badge/Nano_3.97M-FFFFFF?style=for-the-badge&logo=huggingface&logoColor=1769E0"></a>
+  <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="https://img.shields.io/badge/Live_Playground-0B2A54?style=for-the-badge&logo=huggingface&logoColor=white"></a>
 </p>
 
 <p align="center">
-  <strong>Inflect-Nano is an ultra-small local English TTS project. Inflect-Nano-v1 is released on Hugging Face as a complete 4.63M-parameter text-to-waveform stack; Inflect-Nano-v2 is active research toward stronger 4M and 10M variants.</strong>
-</p>
-
-<p align="center">
-  <a href="#inflect-nano-v1">v1 Release</a> ·
-  <a href="#quickstart">Quickstart</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#inflect-nano-v2">v2 Research</a> ·
+  <a href="#listen-first">Listen</a> ·
   <a href="#evaluation">Evaluation</a> ·
-  <a href="PUBLISHING.md">Publishing</a>
+  <a href="#run-locally">Run locally</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#release-scope">Release scope</a> ·
+  <a href="#documentation">Documentation</a>
 </p>
 
 ---
 
-## Inflect-Nano-v1
+## Two sizes, one complete runtime
 
-Inflect-Nano-v1 is a tiny English text-to-speech model with **4.632M total inference parameters**, including its vocoder.
+| | **Inflect-Nano-v2** | **Inflect-Micro-v2** |
+| --- | ---: | ---: |
+| Positioning | Footprint first | Quality first |
+| Complete parameters | **3,966,721** | **9,356,513** |
+| FP32 weights | **15.97 MB** | **37.53 MB** |
+| Output | 24 kHz mono waveform | 24 kHz mono waveform |
+| Waveform decoder | Included | Included |
+| Voice | One fixed English male voice | One fixed English male voice |
+| Public interface | Same Python API and CLI | Same Python API and CLI |
 
-Released model:
+The parameter totals cover the entire local synthesis path: text encoding,
+duration prediction, latent synthesis, and the integrated waveform decoder.
+Training-only discriminators are not inference parameters, and no second model
+is downloaded when speech is generated.
 
-- [owensong/Inflect-Nano-v1 on Hugging Face](https://huggingface.co/owensong/Inflect-Nano-v1)
+## Listen first
 
-The goal is not to beat large TTS systems. The goal is to prove how far a complete local text-to-waveform stack can be pushed at an extremely small size.
+The fastest way to understand the models is the
+**[live Inflect v2 playground](https://huggingface.co/spaces/owensong/Inflect-v2)**.
+It runs the published checkpoints and supports:
 
-### Highlights
+- direct Micro/Nano comparison on identical text and seeds;
+- speaking-speed and stochastic-delivery controls;
+- punctuation-aware long-text synthesis;
+- downloadable 24 kHz WAV output.
 
-- 4.63M total inference parameters
-- Includes the vocoder
-- 24 kHz audio
-- Single English male voice
-- Local PyTorch inference
-- Built for tiny-model experiments, local assistants, embedded demos, and efficient inference research
-
-### Model Size
-
-| Part | Parameters |
-| --- | ---: |
-| Acoustic model | 3.465M |
-| Vocoder generator | 1.167M |
-| Total inference stack | 4.632M |
-
-Released model files:
-
-```text
-weights/inflect_nano_v1_acoustic.pt
-weights/inflect_nano_v1_vocoder.pt
-```
-
-## Quickstart
-
-Use the Hugging Face release for the runnable v1 model:
-
-```bash
-git clone https://huggingface.co/owensong/Inflect-Nano-v1
-cd Inflect-Nano-v1
-pip install -r requirements.txt
-python inference.py --text "Wait, are you actually being for real now?" --out sample.wav
-```
-
-CPU:
-
-```bash
-python inference.py --device cpu --text "Please say neighborhood clearly." --out sample_cpu.wav
-```
-
-Simple controls:
-
-```bash
-python inference.py \
-  --text "The appointment moved to 1:25." \
-  --length-scale 1.03 \
-  --pitch-scale 1.00 \
-  --energy-scale 1.00 \
-  --out sample_controlled.wav
-```
-
-Local Gradio demo:
-
-```bash
-python app.py
-```
-
-## Architecture
-
-Inflect-Nano-v1 uses a compact non-autoregressive acoustic model plus a small waveform generator.
-
-```mermaid
-flowchart LR
-  A["Text"] --> B["English text frontend"]
-  B --> C["Compact FastSpeech-style acoustic model"]
-  C --> D["80-bin mel spectrogram"]
-  D --> E["Small Snake HiFi-GAN-style vocoder"]
-  E --> F["24 kHz waveform"]
-```
-
-Main v1 settings:
-
-| Setting | Value |
-| --- | --- |
-| Sample rate | 24 kHz |
-| Mel bins | 80 |
-| Acoustic hidden size | 168 |
-| Encoder layers | 5 |
-| Decoder layers | 6 |
-| Vocoder upsample rates | 8, 8, 2, 2 |
-
-The acoustic model predicts duration, pitch, energy, and brightness before decoding mel frames. The vocoder is a small Snake-activation HiFi-GAN-style generator trained for 24 kHz reconstruction.
-
-## Good For
-
-- Tiny local TTS experiments
-- Offline assistant prototypes
-- Efficient inference research
-- Embedded speech demos
-- Browser/WASM-style exploration
-- Baseline comparisons for sub-5M TTS work
-
-## Not Good For
-
-- Production narration
-- Accessibility-critical output
-- Voice cloning
-- Multilingual speech
-- High-fidelity audiobook generation
-- Matching large modern TTS systems
-
-## Limitations
-
-Inflect-Nano-v1 is a very small experimental model. It can sound robotic, buzzy, or unstable, especially on difficult unseen text. Long prompts and unusual phrasing are less reliable, and the vocoder is a clear quality bottleneck.
-
-Use v1 as a tiny-model research/demo release, not as a production TTS engine.
-
-## Inflect-Nano-v2
-
-Inflect-Nano-v2 is the active research track. It is not released yet.
-
-Current direction:
-
-- two planned sizes: approximately 4M and 10M total inference parameters
-- single-voice English first, with cleaner finetuning paths later
-- teacher-distilled data from larger TTS systems
-- stronger acoustic model experiments around prior-plus-residual CFM
-- vocoder bakeoffs around compact HiFi-GAN, iSTFTNet, and source-filter variants
-- objective checks plus listening tests before any release claim
-
-The v2 rule is strict: do not trust training loss by itself. A candidate has to survive reconstruction tests, unseen-text listening, objective diagnostics, and a clear comparison against v1.
+Every result is generated from the entered text. The Space does not use
+prerecorded fallback audio, reference audio, or a teacher model.
 
 ## Evaluation
 
-Inflect is evaluated with both human listening and objective checks.
+No single metric describes a TTS system. Inflect reports human preference,
+predicted naturalness, multi-ASR intelligibility, model footprint, and runtime
+separately.
 
-```mermaid
-flowchart TD
-  A["Generate fixed prompt set"] --> B["Blind A/B listening"]
-  A --> C["Objective audio checks"]
-  B --> D["Accept, reject, or retry experiment"]
-  C --> D
-  D --> E["Document result"]
+| Model | Community preference ↑ | UTMOS22 ↑ | Two-ASR semantic WER ↓ | Warm CPU throughput ↑ |
+| --- | ---: | ---: | ---: | ---: |
+| **Inflect-Micro-v2** | **66.2%** | **4.395** | **3.99%** | **1.58× real time** |
+| **Inflect-Nano-v2** | **63.9%** | **4.386** | **4.21%** | **1.59× real time** |
+
+<p align="center">
+  <img src="assets/evidence/quality-vs-footprint.svg" alt="UTMOS22 predicted quality versus complete model footprint" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/evidence/asr-consensus.svg" alt="Two-ASR semantic WER on 400 matched unseen prompts" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/evidence/cpu-throughput.svg" alt="Matched warm CPU synthesis throughput" width="900">
+</p>
+
+### What the numbers mean
+
+- **Community preference** is anonymous blind pairwise listening with hidden
+  model identities and randomized left/right order. It is descriptive evidence,
+  not formal MOS.
+- **UTMOS22** is a learned quality predictor run on 500 matched unseen prompts
+  per voice. It is not human MOS.
+- **Semantic WER** is the equal-weight corpus-level mean of Qwen3-ASR and
+  Nemotron 3.5 on 400 matched unseen prompts. Whisper large-v3 remains in the
+  raw audit but is excluded consistently from the headline after insertion-heavy
+  failures on a subset of Supertonic 8-step clips.
+- **CPU throughput** is end-to-end warm synthesis on an AMD Ryzen 9 3900X with
+  12 threads, 48 identical prompts, three warmups, one isolated process per
+  system, and no visible GPU. `1.0×` is real time.
+
+The Hugging Face packages include prompt manifests, hashes, hypotheses,
+bootstrap intervals, per-system reports, signal diagnostics, and raw runtime
+rows under `evaluation/`.
+
+## Run locally
+
+### Micro: quality-first
+
+```bash
+git clone https://huggingface.co/owensong/Inflect-Micro-v2
+cd Inflect-Micro-v2
+python -m pip install -r requirements.txt
+python inference.py \
+  --text "A small local model can still sound surprisingly alive." \
+  --output out.wav
 ```
 
-Tracked checks include:
+### Nano: footprint-first
 
-- pronunciation and text coverage
-- speaker consistency for single-voice releases
-- pacing and duration stability
-- skipped or invented words
-- leading clicks, long silences, and internal dropouts
-- loudness jumps
-- real-time factor
-- vocoder artifacts
+```bash
+git clone https://huggingface.co/owensong/Inflect-Nano-v2
+cd Inflect-Nano-v2
+python -m pip install -r requirements.txt
+python inference.py \
+  --text "This complete model stays under four million parameters." \
+  --output out.wav
+```
 
-See [docs/EVALUATION.md](docs/EVALUATION.md).
+### Python
 
-## Repository Map
+```python
+from inference import InflectTTS
+
+tts = InflectTTS(".", device="cpu")
+sample_rate, waveform = tts.synthesize(
+    "The model returns a complete waveform.",
+    speed=1.0,
+    variation=0.667,
+    seed=7,
+)
+tts.save("The same runtime can write a WAV directly.", "sample.wav", seed=7)
+```
+
+Long input is split at punctuation-aware boundaries, synthesized chunk by
+chunk, and joined with controlled pauses. This bounds memory; it is not one
+globally planned long-form pass.
+
+## Architecture
+
+Inflect v2 is a compact VITS-family end-to-end generator with:
+
+- an English normalization and phoneme frontend;
+- a transformer text encoder and stochastic duration predictor;
+- monotonic alignment and latent-variable speech generation;
+- residual coupling flows;
+- an integrated alias-reduced neural waveform decoder.
+
+```mermaid
+flowchart LR
+  A["English text"] --> B["Normalization + phonemes"]
+  B --> C["Text encoder + duration model"]
+  C --> D["Stochastic latent speech generator"]
+  D --> E["Residual coupling flow"]
+  E --> F["Integrated 24 kHz waveform decoder"]
+  F --> G["Mono WAV"]
+```
+
+Micro spends its larger budget on hidden and decoder capacity. Nano preserves
+the same deployment contract with a narrower model. The release describes the
+deployable architecture; private corpus-construction and full optimization
+infrastructure are outside the open-weight package.
+
+## Release scope
+
+### Supported
+
+- PyTorch FP32 inference on CPU and CUDA;
+- one fixed English male voice per model;
+- deterministic seeds, speaking speed, and delivery variation;
+- punctuation-aware long-text chunking;
+- local Python API, CLI, examples, and complete waveform generation.
+
+### Not claimed
+
+- voice cloning or selectable speakers;
+- female or multilingual voices;
+- streaming or measured time-to-first-audio;
+- validated ONNX, GGUF, Core ML, TFLite, FP16, or integer-quantized exports;
+- safety for medical, legal, emergency, or accessibility-critical use.
+
+GGUF is not a natural container for this convolutional VITS-family waveform
+model. ONNX and quantized releases will be published only after they preserve
+intelligibility and audio quality under matched evaluation.
+
+## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| [`inflect/`](inflect/) | Inflect-native modules and extension experiments. |
-| [`scripts/`](scripts/) | Dataset generation, training, rendering, evaluation, and release tooling. |
-| [`inflect_asr/`](inflect_asr/) | Side project for small ASR and teacher-label pipelines. |
-| [`voice-encoder/`](voice-encoder/) | Voice conditioning and paralinguistic research. |
-| [`docs/`](docs/) | Architecture, roadmap, evaluation, media kit, and release notes. |
-| [`examples/`](examples/) | Lightweight public examples and sample assets. |
-| [`assets/`](assets/) | README and media-kit visuals. |
+| [`scripts/`](scripts/) | Evaluation, release, dataset, and research tooling |
+| [`inflect/`](inflect/) | Inflect-native research modules |
+| [`docs/`](docs/) | Architecture decisions, evaluation, release notes, and publication runbooks |
+| [`examples/`](examples/) | Lightweight project examples |
+| [`assets/`](assets/) | Release and documentation visuals |
 
-Local generated outputs, checkpoints, reference voices, virtual environments, and third-party checkouts are intentionally excluded from GitHub.
+Runnable v2 weights and self-contained inference packages live on Hugging Face,
+not in the GitHub repository.
 
-## Publishing
+## Documentation
 
-GitHub is the source, docs, and experiment-planning home. Hugging Face is the release home for runnable model weights and model cards.
+- [Evaluation methodology](docs/INFLECT_V2_EVALUATION_MATRIX_20260721.md)
+- [Technical report](docs/INFLECT_V2_TECHNICAL_REPORT.md)
+- [Release readiness and limitations](docs/INFLECT_V2_RELEASE_READINESS_20260721.md)
+- [Publication runbook](docs/INFLECT_V2_PUBLICATION_RUNBOOK_20260721.md)
+- [Release notes](docs/INFLECT_V2_RELEASE_NOTES_20260721.md)
+- [Hero-image generation prompt](docs/INFLECT_V2_HERO_IMAGE_PROMPT.md)
+- [Publishing boundaries](PUBLISHING.md)
+- [Security policy](SECURITY.md)
 
-Current public release:
+## License and contact
 
-- [owensong/Inflect-Nano-v1](https://huggingface.co/owensong/Inflect-Nano-v1)
+Original Inflect code and released weights are Apache-2.0. Bundled third-party
+components retain their own notices. Inflect v2 is an **open-weight** release;
+the private corpus-generation pipeline and full optimization recipe are not
+included.
 
-Future v2 releases should not replace v1 until they have better listening results, cleaner diagnostics, and a reproducible release package.
+Designed and developed independently by **Owen Song**.
 
-## License
+- Discord: `b111ue`
+- Professional inquiries: [owen.aw.song@gmail.com](mailto:owen.aw.song@gmail.com)
 
-Repository code and documentation are licensed under Apache 2.0 unless otherwise noted.
+## Citation
 
-Generated datasets, reference voices, model checkpoints, and third-party components may have separate terms. See [LICENSE](LICENSE), [PUBLISHING.md](PUBLISHING.md), and [SECURITY.md](SECURITY.md).
+```bibtex
+@software{song2026inflectv2,
+  author = {Owen Song},
+  title = {Inflect v2: Complete Local Text-to-Waveform TTS at 3.97M and 9.36M Parameters},
+  year = {2026},
+  url = {https://github.com/owenawsong/Inflect}
+}
+```
