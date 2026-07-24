@@ -95,11 +95,11 @@ MODELS = (
         p95="7.207 s",
         load="0.192 s",
         latent="128",
-        hidden="80",
+        hidden="72",
         layers_heads="3 / 2",
-        ffn="512",
+        ffn="384",
         flow="4",
-        decoder="256",
+        decoder="192",
     ),
 )
 
@@ -123,6 +123,18 @@ def sample_rows(model: Model) -> str:
             f'src="{url}"></audio> |'
         )
     return "\n".join(rows)
+
+
+def navigation(model: Model) -> str:
+    sibling_asset = "nano" if model.repo == "Inflect-Micro-v2" else "micro"
+    sibling_alt = "Inflect Nano v2" if sibling_asset == "nano" else "Inflect Micro v2"
+    return f"""<p align="center">
+  <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="assets/nav/playground.svg" width="168"></a>
+  <a href="https://github.com/owenawsong/Inflect"><img alt="GitHub" src="assets/nav/github.svg" width="168"></a>
+  <a href="https://huggingface.co/owensong/{model.sibling_repo}"><img alt="{sibling_alt}" src="assets/nav/{sibling_asset}.svg" width="168"></a>
+  <a href="docs/FINETUNING.md"><img alt="Fine-tuning guide" src="assets/nav/finetuning.svg" width="168"></a>
+  <a href="https://discord.gg/CVJYedvzvp"><img alt="Inflect Discord" src="assets/nav/discord.svg" width="168"></a>
+</p>"""
 
 
 def card(model: Model) -> str:
@@ -154,19 +166,13 @@ inference: false
 <p align="center"><strong>Complete local text-to-waveform speech synthesis under {model.limit} parameters.</strong><br>
 24 kHz English TTS with the neural waveform decoder already inside the model.</p>
 
-<p align="center">
-  <a href="https://github.com/owenawsong/Inflect"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-0B2A54?style=for-the-badge&logo=github&logoColor=white"></a>
-  <a href="https://huggingface.co/owensong/Inflect-Micro-v2"><img alt="Inflect Micro v2" src="https://img.shields.io/badge/Micro_9.36M-1769E0?style=for-the-badge&logo=huggingface&logoColor=white"></a>
-  <a href="https://huggingface.co/owensong/Inflect-Nano-v2"><img alt="Inflect Nano v2" src="https://img.shields.io/badge/Nano_3.97M-FFFFFF?style=for-the-badge&logo=huggingface&logoColor=1769E0"></a>
-  <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="https://img.shields.io/badge/Playground-1769E0?style=for-the-badge&logo=huggingface&logoColor=white"></a>
-  <a href="https://huggingface.co/collections/owensong/inflect-v2-6a619e820808eccf361a2948"><img alt="Inflect v2 collection" src="https://img.shields.io/badge/Collection-0B2A54?style=for-the-badge&logo=huggingface&logoColor=white"></a>
-</p>
+{navigation(model)}
 
 <p align="center"><strong>{model.params_short} complete parameters</strong> · <strong>{model.weights} FP32 weights</strong> · <strong>one fixed English voice</strong> · <strong>no external vocoder</strong></p>
 
 ---
 
-> **Small enough to ship. Complete enough to stand alone.** Every published parameter is part of the local text-to-waveform path: text encoding, duration prediction, latent synthesis, and the integrated 24 kHz waveform decoder. There is no second vocoder download, server model, or inference-time teacher.
+> **Small enough to ship. Complete enough to stand alone.** Every published parameter is part of the local text-to-waveform path: text encoding, duration prediction, latent synthesis, and the integrated 24 kHz waveform decoder. There is no second vocoder download, server model, or external generation service.
 
 <details>
 <summary><strong>Explore this model card</strong></summary>
@@ -199,6 +205,8 @@ No single metric captures TTS quality. Inflect v2 reports **human preference**, 
 | **{model.preference}** | **{model.utmos}** | **{model.consensus_wer}** | **{model.weights}** |
 
 The headline row always refers to **{model.title}**. Detailed competitor results and protocol boundaries are kept visible below.
+
+> **Comparator policy.** Inflect is tested against serious compact and on-device baselines, not deliberately weak systems: [KittenTTS Nano](https://huggingface.co/KittenML/kitten-tts-nano-0.8), [Piper Low](https://huggingface.co/rhasspy/piper-voices), and [Supertonic 3](https://huggingface.co/Supertone/supertonic-3). Under this package-level protocol, every comparator has a larger deployable weight footprint than both Inflect releases. That makes the comparison demanding; it does not imply that one metric establishes universal superiority.
 
 ### 1. Human blind preference
 
@@ -253,30 +261,14 @@ transcription errors.
 
 </details>
 
-### 4. Measured local CPU throughput
+### 4. Runtime status
 
-![Warm CPU throughput](assets/evidence/cpu-throughput.svg)
-
-![Predicted quality and CPU throughput](assets/evidence/quality-vs-cpu-speed.svg)
-
-All systems use the same host, frozen prompt list, three warmups, isolated
-processes, and end-to-end timing boundary. Runtime includes each system's text
-frontend and waveform generation. The table and figures report audio seconds
-generated per wall-clock second; **1.0× is real time**.
-
-| System | Warm throughput ↑ | RTF ↓ | Median latency | p95 latency | Cold load |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| **Inflect-Micro-v2** | **1.58×** | 0.635 | 2.402 s | 7.281 s | 2.774 s |
-| **Inflect-Nano-v2** | **1.59×** | 0.630 | 1.797 s | 7.207 s | 0.192 s |
-| KittenTTS Nano · 2-voice mean | 7.85× | 0.127 | 0.740 s | 1.074 s | 3.830 s |
-| Piper Low · 2-voice mean | 18.58× | 0.054 | 0.219 s | 0.364 s | 3.172 s |
-| Supertonic 3 · James · 3-step | 5.51× | 0.181 | 0.994 s | 1.494 s | 1.318 s |
-| Supertonic 3 · James · 8-step | 2.51× | 0.398 | 2.267 s | 3.181 s | 1.601 s |
-
-These measurements used an AMD Ryzen 9 3900X with 12 configured CPU threads,
-48 identical prompts, and `CUDA_VISIBLE_DEVICES` empty. They compare the
-released software paths, not architecture alone: Inflect runs PyTorch, while
-the competitor packages use their published ONNX Runtime paths.
+The release supports CPU and CUDA inference through the same public API. A
+previous local CPU table has been withdrawn because background host saturation
+made its cross-system throughput figures non-reproducible. A clean-host rerun
+will be published with the complete environment, thread policy, warmup count,
+matched prompts, and raw per-utterance timings. Until then, this card makes no
+headline CPU-speed claim.
 
 ### 5. Complete weight footprint
 
@@ -285,7 +277,7 @@ the competitor packages use their published ONNX Runtime paths.
 Voice variants sharing the same weights are merged. Inflect totals include the integrated waveform decoder.
 
 <details>
-<summary><strong>Open the frozen protocol and host-specific runtime snapshot</strong></summary>
+<summary><strong>Open the frozen evaluation protocol</strong></summary>
 
 - Modern400 uses 400 identical unseen English prompts per system: 200 fixed modern/stress prompts plus 200 deterministic FLEURS `en_us` test prompts.
 - Exact-text exclusion was checked against 87,362 training transcripts.
@@ -294,16 +286,8 @@ Voice variants sharing the same weights are merged. Inflect totals include the i
 - Headline intervals use 10,000 bootstrap samples.
 - The Modern400 corpus SHA-256 is `b7504ce2dce44a2da82770a6a5dfd2a034fe17e2113980f8a69663ade417a34c`.
 - Prompts, hypotheses, compressed row-level reports, and summaries ship under `evaluation/final/`.
-
-The retained CPU snapshot used one isolated process, 48 matched prompts, three
-warmups, and 12 configured CPU threads on an AMD Ryzen 9 3900X:
-
-| RTF ↓ | Audio generated / wall time ↑ | Median utterance | p95 utterance | Cold load |
-| ---: | ---: | ---: | ---: | ---: |
-| {model.rtf} | {model.realtime} real time | {model.median} | {model.p95} | {model.load} |
-
-RTF is wall time divided by generated audio duration. This is a host-specific
-engineering snapshot, not a portable cross-system speed claim.
+- Runtime is evaluated separately because framework, thread policy, compilation,
+  and host load can dominate small-model comparisons.
 
 </details>
 
@@ -408,7 +392,7 @@ Long passages are punctuation-aware chunks, not one unlimited autoregressive pas
 <details>
 <summary id="data-voice-and-adaptation-status"><strong>Data, voice, and adaptation status</strong></summary>
 
-The release voice was trained on a single-speaker synthetic English corpus generated with a larger third-party TTS teacher. No teacher model is required or shipped at inference. The package does not redistribute a real speaker dataset and does not claim the synthetic voice as the identity of a real person.
+The release contains one fixed synthetic English voice. The package does not redistribute a real-speaker recording corpus, does not claim the voice as the identity of a real person, and requires no reference audio or external model at inference.
 
 This release is inference-first. New-voice and new-language adaptation are **not currently validated or supported**. A new voice would replace the fixed speaker rather than add a selectable speaker; language adaptation also requires rebuilding normalization, phonemes, symbols, embeddings, and training data. See [`docs/DATA_AND_VOICE.md`](docs/DATA_AND_VOICE.md) and [`docs/FINETUNING.md`](docs/FINETUNING.md).
 
@@ -453,6 +437,7 @@ Inflect v2 is an **open-weight** release. Deployable weights, inference code, fr
 Owen Song may share additional technical context privately for credible research, collaboration, reproducibility, or deployment inquiries when the request has a clear purpose and does not conflict with licensing or data-provenance constraints.
 
 - **Discord:** `b111ue` — fastest for informal technical questions
+- **Community server:** [discord.gg/CVJYedvzvp](https://discord.gg/CVJYedvzvp)
 - **Email:** [owen.aw.song@gmail.com](mailto:owen.aw.song@gmail.com) — preferred for professional inquiries
 
 ## Citation
