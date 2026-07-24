@@ -455,7 +455,7 @@ def quality_speed_figure(values: dict[str, dict[str, Any]], runtime_dir: Path, o
         f'<text class="small" x="{(x0+x1)/2}" y="685" text-anchor="middle">Audio seconds generated per wall-clock second · higher is faster</text>',
         '<text class="small" x="28" y="365" transform="rotate(-90 28 365)" text-anchor="middle">Predicted MOS · higher is better</text>',
         '<text class="small" x="56" y="738">A point farther right and higher is preferable. One host and isolated process per system; UTMOS22 is not human MOS.</text>',
-        '<text class="small" x="1110" y="104" text-anchor="end">Supertonic 3-step: 2.471 UTMOS22 · below plotted range</text>',
+        '<text class="small" x="1110" y="714" text-anchor="end">Supertonic 3-step: 2.471 UTMOS22 · below plotted range</text>',
     ])
     write_svg(out, parts)
 

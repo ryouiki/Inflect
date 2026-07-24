@@ -29,3 +29,7 @@ Live text-to-waveform inference for both Inflect v2 release models:
 Every result is synthesized live from text. There is no reference audio,
 prerecorded fallback, or inference-time teacher model. Use the Compare tab to
 run the same text, speed, variation, and seed through both checkpoints.
+
+Long input is split automatically at sentence and punctuation boundaries, then
+assembled into one downloadable WAV. ZeroGPU still applies a per-generation
+time limit, so submit book-length or document-length text in smaller sections.

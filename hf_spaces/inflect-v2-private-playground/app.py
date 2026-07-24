@@ -219,12 +219,10 @@ def validate(
     text = " ".join((text or "").split())
     if not text:
         raise gr.Error("Enter something for Inflect to say.")
-    if len(text) > 1_200:
-        raise gr.Error("Keep the playground input under 1,200 characters.")
     return text, float(speed), float(variation), float(pitch_steps), int(seed)
 
 
-@spaces.GPU(duration=45)
+@spaces.GPU(duration=120)
 def synthesize_one(
     text: str,
     model_name: str,
@@ -242,16 +240,18 @@ def synthesize_one(
     seconds = len(audio[1]) / audio[0]
     wall = time.perf_counter() - started
     rtf = wall / seconds
+    chunks = len(split_text(text))
     return audio, (
         f"**{model_name}** · fixed English voice  \n"
         f"`{engine.spec.params}` parameters · `{seconds:.2f}s` audio · "
         f"`{wall:.2f}s` generation · `RTF {rtf:.3f}` · "
-        f"`{len(text)}` characters · pitch `{pitch_steps:+.2f} st` · "
+        f"`{len(text)}` characters · `{chunks}` text chunk{'s' if chunks != 1 else ''} · "
+        f"pitch `{pitch_steps:+.2f} st` · "
         f"seed `{seed}` · weights `{engine.spec.revision}`"
     )
 
 
-@spaces.GPU(duration=60)
+@spaces.GPU(duration=120)
 def synthesize_both(
     text: str,
     speed: float,
@@ -282,50 +282,59 @@ def synthesize_both(
 
 
 CSS = """
-:root{color-scheme:dark;--paper:#111412;--panel:#1a1e1b;--panel-2:#151916;--ink:#f1f2ed;--muted:#9ba59d;--line:#343b36;--signal:#2486ff;--signal-hover:#52a0ff;--signal-soft:#15263b}
+:root{color-scheme:dark;--paper:#111412;--panel:#181c19;--panel-2:#141815;--ink:#f3f4ef;--muted:#9ea8a0;--line:#303732;--signal:#2486ff;--signal-hover:#52a0ff;--signal-soft:#15263b}
 html,body,.gradio-container,.dark{background:var(--paper)!important;color:var(--ink)!important;color-scheme:dark!important}
 body,.gradio-container,.gradio-container button,.gradio-container input,.gradio-container textarea{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important}
-.gradio-container{max-width:1120px!important;margin:auto!important;padding:0 22px 50px!important;box-sizing:border-box!important}
+.gradio-container{width:min(100%,1640px)!important;max-width:none!important;margin:auto!important;padding:0 clamp(14px,2.2vw,34px) 54px!important;box-sizing:border-box!important}
+.gradio-container>.main{padding:0!important}
 .gradio-container *{box-sizing:border-box}
-.hero{padding:28px 4px 22px;border-bottom:1px solid var(--line);margin-bottom:24px}
+.hero-wrap,.hero-wrap.block,.hero-wrap>.wrap{padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important}
+.hero{padding:18px 2px 13px;border-bottom:1px solid var(--line);margin-bottom:2px}
 .hero-top{display:flex;align-items:center;justify-content:space-between;gap:20px}
 .eyebrow{color:var(--signal);font:700 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.13em;text-transform:uppercase}
 .links{display:flex;align-items:center;gap:18px;font-size:12px;font-weight:700}
 .links a{color:var(--muted)!important;text-decoration:none}.links a:hover{color:var(--ink)!important}
-.hero h1{max-width:850px;margin:26px 0 12px;color:var(--ink);font:650 clamp(48px,8vw,84px)/.91 Inter,ui-sans-serif,sans-serif;letter-spacing:-.065em}
-.hero>p{max-width:760px;margin:0;color:var(--muted)!important;font-size:16px;line-height:1.58}
-.model-facts{display:flex;align-items:stretch;margin-top:25px;border-top:1px solid var(--line)}
-.model-fact{flex:1;padding:15px 20px 2px 0;color:var(--muted)!important;font-size:12px;line-height:1.4}
+.hero h1{max-width:1040px;margin:15px 0 8px;color:var(--ink);font:650 clamp(40px,4.5vw,56px)/.96 Inter,ui-sans-serif,sans-serif;letter-spacing:-.055em}
+.hero>p{max-width:1000px;margin:0;color:var(--muted)!important;font-size:13px;line-height:1.48}
+.model-facts{display:flex;align-items:stretch;margin-top:13px;border-top:1px solid var(--line)}
+.model-fact{flex:1;padding:8px 24px 0 0;color:var(--muted)!important;font-size:11px;line-height:1.3}
 .model-fact+.model-fact{padding-left:20px;border-left:1px solid var(--line)}
-.model-fact strong{display:block;margin-bottom:4px;color:var(--ink);font-size:17px;line-height:1.2}
-.model-fact:first-child strong{color:#72afff}
-.workbench{padding:20px!important;border:1px solid var(--line)!important;background:var(--panel)!important}
-.control-row{gap:16px!important}.action-row{margin-top:4px!important}
+.model-fact strong{display:block;margin-bottom:2px;color:var(--ink);font-size:14px;line-height:1.2}
+.zerogpu-note{max-width:1080px;margin:10px 0 0!important;padding:7px 11px;border-left:2px solid var(--signal);background:#151b20;color:var(--muted)!important;font-size:11px!important;line-height:1.4!important}
+.workbench{padding:14px 0 4px!important;border:0!important;background:transparent!important}
+.workbench.block,.workbench>.wrap{border:0!important;box-shadow:none!important;background:transparent!important}
+.control-row{align-items:stretch!important;gap:20px!important;margin-top:6px!important;padding:13px 14px 12px!important;border:1px solid var(--line)!important;border-radius:3px!important;background:var(--panel-2)!important}
+.control-row>div{min-width:0!important}
+.control-row .form{height:100%!important;border:0!important;background:transparent!important}
+.control-row label>span:first-child{font-size:12px!important;font-weight:750!important;letter-spacing:.015em!important}
+.action-row{justify-content:center!important;gap:12px!important;margin:12px auto 0!important;max-width:840px!important}
+.action-row button{min-height:48px!important}
 .comparison{margin-top:22px!important;padding-top:20px!important;border-top:1px solid var(--line)!important}
 .comparison-title{margin-bottom:9px!important}
-.gradio-container .block,.gradio-container .form{border-radius:2px!important;background:var(--panel-2)!important;border-color:var(--line)!important;color:var(--ink)!important}
+.gradio-container .block,.gradio-container .form{border-radius:3px!important;background:var(--panel-2)!important;border-color:var(--line)!important;color:var(--ink)!important}
 .gradio-container .prose,.gradio-container .markdown-body,.gradio-container label,.gradio-container span,.gradio-container p,.gradio-container h1,.gradio-container h2,.gradio-container h3{color:var(--ink)!important}
 .gradio-container label{background:transparent!important}
 .gradio-container .wrap{background:var(--panel-2)!important}
-.gradio-container label.selected{background:var(--signal-soft)!important;border-color:#315f92!important}
+.gradio-container select{min-height:48px!important;background:#101411!important;color:var(--ink)!important;border-color:var(--line)!important;text-align:left!important}
 .gradio-container input,.gradio-container textarea{background:#101411!important;color:var(--ink)!important;border-color:var(--line)!important}
-.gradio-container textarea{font-size:16px!important;line-height:1.55!important}
+.prompt-input textarea{font-size:16px!important;line-height:1.55!important;min-height:104px!important;padding:15px!important}
 .gradio-container button:not(.primary){background:var(--panel-2)!important;color:var(--ink)!important;border-color:var(--line)!important}
 .gradio-container button:not(.primary):hover{border-color:#527aa6!important;background:#1b242d!important}
 button.primary{min-height:46px!important;border:0!important;border-radius:1px!important;background:var(--signal)!important;color:#fff!important;font-weight:800!important}
 button.primary *{color:#fff!important}button.primary:hover{background:var(--signal-hover)!important}
-.advanced{margin:6px 0 2px!important;background:#131814!important}
-.advanced>button{font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-size:12px!important}
+.advanced{margin:10px 0 3px!important;background:#131814!important;border-left:2px solid #344138!important}
+.advanced>button{font-size:12px!important;font-weight:750!important;letter-spacing:.01em!important}
 .output-audio{margin-top:8px!important}
 .outputmeta{padding:11px 13px!important;background:var(--signal-soft)!important;border:1px solid #294e78!important}
 .outputmeta *{color:#dceaff!important}
+.helper-copy{margin:8px 2px 4px!important;color:var(--muted)!important;font-size:12px!important}
 .fineprint{color:var(--muted)!important;font-size:12px;line-height:1.55;border-top:1px solid var(--line);padding-top:16px;margin-top:22px}
 footer{display:none!important}
 @media(max-width:760px){
 html,body{overflow-x:hidden!important}.gradio-container{width:100%!important;min-width:0!important;padding:0 14px 38px!important}
 .hero{padding-top:22px}.hero-top{align-items:flex-start;flex-direction:column;gap:12px}.links{gap:14px;font-size:11px}
-.hero h1{margin-top:21px;font-size:50px}.model-facts{display:grid;grid-template-columns:1fr 1fr}.model-fact{padding:13px 12px 10px 0}.model-fact+.model-fact{padding-left:12px}.model-fact:nth-child(3){padding-left:0;border-left:0;border-top:1px solid var(--line)}.model-fact:nth-child(4){border-top:1px solid var(--line)}
-.workbench{min-width:0!important;padding:15px!important}.control-row,.action-row,.comparison .row{flex-direction:column!important;min-width:0!important}
+.hero h1{margin-top:18px;font-size:42px}.model-facts{display:grid;grid-template-columns:1fr 1fr}.model-fact{padding:11px 10px 9px 0}.model-fact+.model-fact{padding-left:10px}.model-fact:nth-child(3){padding-left:0;border-left:0;border-top:1px solid var(--line)}.model-fact:nth-child(4){border-top:1px solid var(--line)}
+.workbench{min-width:0!important;padding-top:18px!important}.control-row,.action-row,.comparison .row{flex-direction:column!important;min-width:0!important}
 .control-row>*,.action-row>*,.comparison .row>*{width:100%!important;min-width:0!important}.gradio-container .wrap,.gradio-container .form,.gradio-container .block{min-width:0!important}
 }
 """
@@ -349,29 +358,33 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
           <a href="https://github.com/owenawsong/Inflect">GitHub</a>
         </nav>
       </div>
-      <h1>Type anything.<br>Hear both Inflects.</h1>
-      <p>Run the complete published text-to-waveform models from one compact playground. Every result is generated from your text with no reference audio, prerecorded fallback, external vocoder, or inference-time teacher.</p>
+      <h1>Small models.<br>Complete speech.</h1>
+      <p>Generate 24 kHz English speech with the published Inflect-Micro-v2 and Inflect-Nano-v2 checkpoints. The full text-to-waveform path runs here: no reference clip, external vocoder, hosted teacher, or prerecorded result.</p>
       <div class="model-facts">
         <div class="model-fact"><strong>9.36M · Micro</strong>quality-first model</div>
         <div class="model-fact"><strong>3.97M · Nano</strong>footprint-first model</div>
         <div class="model-fact"><strong>24 kHz WAV</strong>complete waveform output</div>
         <div class="model-fact"><strong>Local stack</strong>text normalization through audio</div>
       </div>
+      <p class="zerogpu-note"><strong>ZeroGPU note:</strong> each generation has a time limit. Inflect automatically splits text at sentence and punctuation boundaries, but very long documents should be submitted in smaller sections.</p>
     </header>
-    """)
+    """, elem_classes="hero-wrap")
     with gr.Column(elem_classes="workbench"):
         text = gr.Textbox(
             value=PROMPTS[0],
-            lines=6,
-            max_lines=12,
-            label="What should Inflect say?",
+            lines=4,
+            max_lines=14,
+            label="Text",
+            placeholder="Write a sentence, paragraph, or script...",
+            elem_classes="prompt-input",
         )
         with gr.Row(equal_height=True, elem_classes="control-row"):
-            model = gr.Radio(
+            model = gr.Dropdown(
                 list(SPECS),
                 value="Inflect Micro v2",
                 label="Model",
-                scale=5,
+                info="Micro prioritizes quality; Nano prioritizes footprint.",
+                scale=4,
             )
             speed = gr.Slider(
                 0.7,
@@ -379,7 +392,8 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
                 value=1.0,
                 step=0.01,
                 label="Speaking speed",
-                scale=3,
+                info="1.00 is the trained default.",
+                scale=4,
             )
             variation = gr.Slider(
                 0.0,
@@ -388,7 +402,7 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
                 step=0.001,
                 label="Delivery variation",
                 info="Lower is steadier. Higher gives each take more variation.",
-                scale=4,
+                scale=5,
             )
         with gr.Accordion(
             "Advanced controls",
@@ -416,13 +430,14 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
         audio = gr.Audio(label="Generated 24 kHz WAV", elem_classes="output-audio")
         status = gr.Markdown("Ready.", elem_classes="outputmeta")
         gr.Markdown(
-            "First generation includes queue and model-transfer time. "
-            "Use the player control to download the generated WAV."
+            "The first request can include ZeroGPU queue and model-transfer time. "
+            "Use the audio player's menu to download the final WAV.",
+            elem_classes="helper-copy",
         )
         gr.Examples(
             [[prompt] for prompt in PROMPTS],
             inputs=text,
-            label="Stress-test prompts",
+            label="Try a prepared prompt",
         )
     with gr.Column(elem_classes="comparison"):
         gr.Markdown(

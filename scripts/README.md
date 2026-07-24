@@ -1,6 +1,13 @@
-# Scripts
+# Research and release scripts
 
-This folder contains the operational entrypoints for the current Inflect workspace.
+This folder preserves evaluation, release, dataset, and experimental tooling
+from Inflect development. It is not the supported end-user inference API.
+
+For synthesis, use [`examples/download_and_speak.py`](../examples/download_and_speak.py)
+or the self-contained `inference.py` in either Hugging Face model repository.
+Many scripts below require private data, external checkouts, or historical
+environments and are retained for research provenance rather than one-command
+reproduction.
 
 ## Dataset generation
 
