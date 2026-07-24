@@ -126,14 +126,14 @@ def sample_rows(model: Model) -> str:
 
 
 def navigation(model: Model) -> str:
-    sibling_asset = "nano" if model.repo == "Inflect-Micro-v2" else "micro"
-    sibling_alt = "Inflect Nano v2" if sibling_asset == "nano" else "Inflect Micro v2"
+    sibling_label = "Nano_3.97M" if model.repo == "Inflect-Micro-v2" else "Micro_9.36M"
+    sibling_alt = "Inflect Nano v2" if model.repo == "Inflect-Micro-v2" else "Inflect Micro v2"
     return f"""<p align="center">
-  <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="assets/nav/playground.svg" width="168"></a>
-  <a href="https://github.com/owenawsong/Inflect"><img alt="GitHub" src="assets/nav/github.svg" width="168"></a>
-  <a href="https://huggingface.co/owensong/{model.sibling_repo}"><img alt="{sibling_alt}" src="assets/nav/{sibling_asset}.svg" width="168"></a>
-  <a href="docs/FINETUNING.md"><img alt="Fine-tuning guide" src="assets/nav/finetuning.svg" width="168"></a>
-  <a href="https://discord.gg/CVJYedvzvp"><img alt="Inflect Discord" src="assets/nav/discord.svg" width="168"></a>
+  <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="https://img.shields.io/badge/Playground-0B2A54?style=for-the-badge&logo=huggingface&logoColor=white"></a>
+  <a href="https://github.com/owenawsong/Inflect"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-1769E0?style=for-the-badge&logo=github&logoColor=white"></a>
+  <a href="https://huggingface.co/owensong/{model.sibling_repo}"><img alt="{sibling_alt}" src="https://img.shields.io/badge/{sibling_label}-FFFFFF?style=for-the-badge&logo=huggingface&logoColor=1769E0"></a>
+  <a href="docs/FINETUNING.md"><img alt="Fine-tuning guide" src="https://img.shields.io/badge/Fine--tuning_Guide-1769E0?style=for-the-badge&logo=readthedocs&logoColor=white"></a>
+  <a href="https://discord.gg/CVJYedvzvp"><img alt="Inflect Discord" src="https://img.shields.io/badge/Discord-0B2A54?style=for-the-badge&logo=discord&logoColor=white"></a>
 </p>"""
 
 

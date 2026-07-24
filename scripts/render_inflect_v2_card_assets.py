@@ -106,45 +106,6 @@ def write_svg(path: Path, parts: list[str]) -> None:
     path.write_text("\n".join(parts) + "\n", encoding="utf-8")
 
 
-def icon_path(name: str, color: str) -> str:
-    common = f'fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
-    icons = {
-        "code": f'<path {common} d="M13 8 8 13l5 5M21 8l5 5-5 5M18 5l-3 16"/>',
-        "wave": f'<path {common} d="M7 13h2m2-5v10m4-14v18m4-14v10m4-7v4m4-2h2"/>',
-        "chip": f'<rect {common} x="9" y="7" width="16" height="16" rx="3"/><path {common} d="M13 11h8v8h-8zM12 3v4m5-4v4m5-4v4M12 23v4m5-4v4m5-4v4M5 10h4m-4 5h4m-4 5h4m16-10h4m-4 5h4m-4 5h4"/>',
-        "play": f'<circle {common} cx="17" cy="13" r="11"/><path {common} d="m14 8 8 5-8 5z"/>',
-        "stack": f'<rect {common} x="7" y="6" width="14" height="14" rx="2"/><path {common} d="M11 22h14V10m-10 16h14V14"/>',
-        "tune": f'<path {common} d="M6 8h22M6 17h22M6 26h22"/><circle {common} cx="13" cy="8" r="3"/><circle {common} cx="23" cy="17" r="3"/><circle {common} cx="16" cy="26" r="3"/>',
-        "community": f'<circle {common} cx="13" cy="12" r="4"/><circle {common} cx="24" cy="12" r="4"/><path {common} d="M5 26c1-6 4-9 8-9s7 3 8 9m-3-7c2-2 4-2 6-2 4 0 7 3 8 9"/>',
-    }
-    return icons[name]
-
-
-def navigation_badges(out: Path) -> None:
-    specs = (
-        ("playground", "Playground", "play", BLUE_DARK, "#FFFFFF", BLUE_DARK),
-        ("github", "GitHub", "code", BLUE, "#FFFFFF", BLUE),
-        ("micro", "Micro · 9.36M", "wave", "#FFFFFF", INK, "#BBD3F3"),
-        ("nano", "Nano · 3.97M", "chip", "#FFFFFF", INK, "#BBD3F3"),
-        ("finetuning", "Fine-tuning", "tune", BLUE, "#FFFFFF", BLUE),
-        ("discord", "Discord", "community", BLUE_DARK, "#FFFFFF", BLUE_DARK),
-    )
-    nav = out / "nav"
-    nav.mkdir(parents=True, exist_ok=True)
-    for filename, label, icon, background, foreground, border in specs:
-        parts = [
-            '<svg xmlns="http://www.w3.org/2000/svg" width="168" height="44" viewBox="0 0 168 44">',
-            f'<rect x="1" y="1" width="166" height="42" rx="3" fill="{background}" stroke="{border}" stroke-width="2"/>',
-            f'<g transform="translate(8 9) scale(.78)">{icon_path(icon, foreground)}</g>',
-            (
-                f'<text x="46" y="27" font-family="Inter,Segoe UI,Arial,sans-serif" '
-                f'font-size="13" font-weight="700" fill="{foreground}">{html.escape(label)}</text>'
-            ),
-            "</svg>",
-        ]
-        (nav / f"{filename}.svg").write_text("\n".join(parts) + "\n", encoding="utf-8")
-
-
 def human_preference(data: dict[str, Any], out: Path) -> None:
     rows = []
     for row in data["systems"]:
@@ -447,7 +408,6 @@ def main() -> None:
     human = read_json(args.human)
     args.out.mkdir(parents=True, exist_ok=True)
 
-    navigation_badges(args.out.parent)
     human_preference(human, args.out / "human-preference.svg")
     quality_footprint(utmos, args.out / "quality-vs-footprint.svg")
     two_asr_consensus(modern, args.out / "asr-consensus.svg")
