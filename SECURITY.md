@@ -1,12 +1,16 @@
 # Security Policy
 
-Inflect is a speech-generation research project. Security issues may involve code execution, model artifacts, data handling, or misuse of voice-cloning workflows.
+Inflect is a local speech-generation project. Security issues may involve code
+execution, model artifacts, dependency handling, or unsafe integration.
 
 ## Reporting
 
 If you find a security issue, do not open a public issue with exploit details.
 
-Send a private report to the repository owner through GitHub, or open a minimal private advisory if available.
+Send a private report to the repository owner through a GitHub security
+advisory. If that is unavailable, email
+[owen.aw.song@gmail.com](mailto:owen.aw.song@gmail.com). Do not include exploit
+details in a public issue.
 
 Include:
 
@@ -26,12 +30,15 @@ Do not submit:
 - copyrighted datasets without clear rights
 - model checkpoints containing private training data
 
-## Supported Status
+## Supported versions
 
-This repo is currently a research preview. There is no production support guarantee yet, but credible vulnerability reports will be treated seriously.
+Security fixes target the latest Inflect v2 model packages and the current
+`main` branch. Legacy v1 releases may not receive the same fixes.
 
 ## Responsible Use
 
-Inflect is intended for consent-based voice work, local creative tooling, accessibility, research, and product prototyping.
+Inflect is intended for local creative tooling, accessibility research,
+education, and product prototyping.
 
-Do not use it for impersonation, fraud, harassment, or non-consensual voice cloning.
+Do not use generated speech for impersonation, fraud, harassment, deceptive
+attribution, or other unlawful activity.

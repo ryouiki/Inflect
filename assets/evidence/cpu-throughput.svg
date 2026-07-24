@@ -1,43 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610">
-<rect width="1200" height="610" fill="#F8FBFF"/>
-<style>text{font-family:Arial,Helvetica,sans-serif;fill:#10253F}.title{font-size:28px;font-weight:700;letter-spacing:-.3px}.subtitle{font-size:14px;fill:#5E7085}.label{font-size:14px}.small{font-size:12px;fill:#5E7085}.value{font-size:14px;font-weight:700}.axis{stroke:#AFC0D2;stroke-width:1}.grid{stroke:#DCE6F1;stroke-width:1}.ci{stroke-width:2}</style>
-<text class="title" x="56" y="52">Warm CPU synthesis throughput</text>
-<text class="subtitle" x="56" y="78">AMD Ryzen 9 3900X · 12 threads · 48 matched prompts · higher is faster</text>
-<line class="grid" x1="330.0" y1="102" x2="330.0" y2="486"/>
-<text class="small" x="330.0" y="98" text-anchor="middle">0.0×</text>
-<line class="grid" x1="484.0" y1="102" x2="484.0" y2="486"/>
-<text class="small" x="484.0" y="98" text-anchor="middle">4.2×</text>
-<line class="grid" x1="638.0" y1="102" x2="638.0" y2="486"/>
-<text class="small" x="638.0" y="98" text-anchor="middle">8.3×</text>
-<line class="grid" x1="792.0" y1="102" x2="792.0" y2="486"/>
-<text class="small" x="792.0" y="98" text-anchor="middle">12.5×</text>
-<line class="grid" x1="946.0" y1="102" x2="946.0" y2="486"/>
-<text class="small" x="946.0" y="98" text-anchor="middle">16.6×</text>
-<line class="grid" x1="1100.0" y1="102" x2="1100.0" y2="486"/>
-<text class="small" x="1100.0" y="98" text-anchor="middle">20.8×</text>
-<text class="label" x="56" y="137">Piper Low · 2-voice mean</text>
-<rect x="330" y="122" width="687.5" height="22" fill="#8B9AA9"/>
-<text class="value" x="1029.5" y="139">18.58× real time</text>
-<text class="small" x="56" y="157">mean p95 0.363 s</text>
-<text class="label" x="56" y="201">KittenTTS Nano · 2-voice mean</text>
-<rect x="330" y="186" width="290.7" height="22" fill="#8B9AA9"/>
-<text class="value" x="632.7" y="203">7.85× real time</text>
-<text class="small" x="56" y="221">mean p95 1.074 s</text>
-<text class="label" x="56" y="265">Supertonic 3 · 3-step</text>
-<rect x="330" y="250" width="204.1" height="22" fill="#8B9AA9"/>
-<text class="value" x="546.1" y="267">5.51× real time</text>
-<text class="small" x="56" y="285">mean p95 1.494 s</text>
-<text class="label" x="56" y="329">Supertonic 3 · 8-step</text>
-<rect x="330" y="314" width="93.1" height="22" fill="#8B9AA9"/>
-<text class="value" x="435.1" y="331">2.51× real time</text>
-<text class="small" x="56" y="349">mean p95 3.181 s</text>
-<text class="label" x="56" y="393">Inflect-Nano-v2</text>
-<rect x="330" y="378" width="58.7" height="22" fill="#1769E0"/>
-<text class="value" x="400.7" y="395">1.59× real time</text>
-<text class="small" x="56" y="413">mean p95 7.207 s</text>
-<text class="label" x="56" y="457">Inflect-Micro-v2</text>
-<rect x="330" y="442" width="58.3" height="22" fill="#1769E0"/>
-<text class="value" x="400.3" y="459">1.58× real time</text>
-<text class="small" x="56" y="477">mean p95 7.281 s</text>
-<text class="small" x="56" y="580">1.0× is real time. Runtime includes text processing and waveform generation; two-voice families are equal-weight means.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-labelledby="title desc">
+  <title id="title">Inflect v2 managed CPU deployment profile</title>
+  <desc id="desc">Inflect Micro v2 runs at 6.28 times real time and Inflect Nano v2 at 10.72 times real time on the managed 8 vCPU reference.</desc>
+  <style>
+    .bg { fill: #f8fbff; }
+    .navy { fill: #082650; }
+    .muted { fill: #60728d; }
+    .blue { fill: #1769e0; }
+    .cyan { fill: #65bff3; }
+    .grid { stroke: #d7e4f3; stroke-width: 1; }
+    .baseline { stroke: #1769e0; stroke-width: 2; stroke-dasharray: 5 6; }
+    .title { font: 700 30px Arial, sans-serif; }
+    .subtitle { font: 400 17px Arial, sans-serif; }
+    .label { font: 700 20px Arial, sans-serif; }
+    .meta { font: 400 15px Arial, sans-serif; }
+    .tick { font: 500 14px Arial, sans-serif; }
+    .value { font: 700 22px Arial, sans-serif; }
+    .note { font: 400 14px Arial, sans-serif; }
+  </style>
+  <rect class="bg" width="1200" height="470" rx="16"/>
+  <text class="navy title" x="56" y="58">CPU deployment profile</text>
+  <text class="muted subtitle" x="56" y="88">Managed 8-vCPU reference · four framework threads · end-to-end text-to-waveform synthesis</text>
+
+  <line class="grid" x1="300" y1="138" x2="1100" y2="138"/>
+  <line class="grid" x1="300" y1="348" x2="1100" y2="348"/>
+  <g class="muted tick">
+    <text x="296" y="126">0x</text>
+    <text x="424" y="126">2x</text>
+    <text x="557" y="126">4x</text>
+    <text x="690" y="126">6x</text>
+    <text x="824" y="126">8x</text>
+    <text x="950" y="126">10x</text>
+    <text x="1080" y="126">12x</text>
+  </g>
+  <g class="grid">
+    <line x1="300" y1="138" x2="300" y2="348"/>
+    <line x1="433" y1="138" x2="433" y2="348"/>
+    <line x1="567" y1="138" x2="567" y2="348"/>
+    <line x1="700" y1="138" x2="700" y2="348"/>
+    <line x1="833" y1="138" x2="833" y2="348"/>
+    <line x1="967" y1="138" x2="967" y2="348"/>
+    <line x1="1100" y1="138" x2="1100" y2="348"/>
+  </g>
+  <line class="baseline" x1="367" y1="138" x2="367" y2="348"/>
+  <text class="blue meta" x="377" y="158">1x real-time threshold</text>
+
+  <text class="navy label" x="56" y="211">Inflect-Micro-v2</text>
+  <text class="muted meta" x="56" y="236">9.36M parameters · 37.53 MB FP32</text>
+  <rect x="300" y="181" width="419" height="60" rx="5" fill="#1769e0"/>
+  <text class="navy value" x="737" y="220">6.28x</text>
+
+  <text class="navy label" x="56" y="307">Inflect-Nano-v2</text>
+  <text class="muted meta" x="56" y="332">3.97M parameters · 15.97 MB FP32</text>
+  <rect x="300" y="277" width="715" height="60" rx="5" fill="#65bff3"/>
+  <text class="navy value" x="1033" y="316">10.72x</text>
+
+  <text class="muted note" x="56" y="408">100 fixed Modern400 prompts · three passes · cache-building pass excluded · steady-state pool from passes 2 and 3</text>
+  <text class="muted note" x="56" y="432">RTF: Micro 0.1593 · Nano 0.0933. Hardware, thread settings, software versions, and text length affect results.</text>
 </svg>

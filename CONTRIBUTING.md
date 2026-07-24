@@ -1,6 +1,7 @@
-# Contributing
+# Contributing to Inflect
 
-Inflect is a research-preview project. Contributions are welcome, but the bar is evidence, not vibes.
+Contributions are welcome. For a speech model, the bar is reproducible evidence
+rather than a single favorable clip.
 
 ## Good Contributions
 
@@ -11,7 +12,7 @@ Useful contributions usually fall into one of these categories:
 - safer data preparation
 - better evaluation prompts
 - runtime stability fixes
-- small, well-scoped model experiments
+- small, well-scoped runtime experiments
 - bug reports with audio examples and exact commands
 
 ## Before Opening a PR
@@ -25,7 +26,7 @@ Please make sure:
 - local absolute paths are not added to public docs
 - the README does not claim unreleased model quality
 
-## Experiment Reports
+## Runtime and evaluation reports
 
 For model or inference changes, include:
 
@@ -33,14 +34,14 @@ For model or inference changes, include:
 - changed variant
 - exact command
 - prompt set
-- voices tested
+- model package and commit tested
 - checkpoint used
 - listening notes
 - objective metrics if available
 
 Minimum listening notes:
 
-- speaker similarity
+- voice consistency
 - pacing
 - skipped words
 - glitches
@@ -60,19 +61,28 @@ Bad:
 
 - one PR containing docs, checkpoints, generated audio, unrelated training changes, and local state files
 
-## Local Artifacts
+## Local artifacts
 
 Do not commit:
 
 - `outputs/`
 - `.blind_ab_state*/`
 - `reference_voices/`
-- `ZipVoice-official/`
-- `third_party/`
+- local third-party checkouts
 - checkpoints
 - full generated datasets
 - private audio
 
-## Project Tone
+## Public release boundary
 
-Inflect should be ambitious without exaggerating. If a model is experimental, say it. If a sample uses an enhancer, label it. If a method failed, document the failure.
+The release is open-weight. A contribution may improve public inference,
+evaluation, examples, documentation, or integration without requiring the
+private corpus-construction pipeline. Do not open issues requesting private
+reference material, generated corpora, credentials, or undisclosed training
+infrastructure.
+
+## Project tone
+
+Inflect should be ambitious without exaggerating. Distinguish measured results
+from estimates, human preference from predicted quality, and complete
+text-to-waveform parameters from training-only modules.
