@@ -60,7 +60,7 @@ SPECS = {
     "Inflect Nano v2": ModelSpec(
         label="Inflect Nano v2",
         short_label="Nano",
-        params="3.97M",
+        params="3.96M",
         checkpoint=ROOT / "models" / "nano" / "model.pth",
         config=ROOT / "models" / "nano" / "config.json",
         revision="bfca4684",
@@ -362,7 +362,7 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
       <p>Generate 24 kHz English speech with the published Inflect-Micro-v2 and Inflect-Nano-v2 checkpoints. The full text-to-waveform path runs here: no reference clip, external vocoder, hosted teacher, or prerecorded result.</p>
       <div class="model-facts">
         <div class="model-fact"><strong>9.36M · Micro</strong>quality-first model</div>
-        <div class="model-fact"><strong>3.97M · Nano</strong>footprint-first model</div>
+        <div class="model-fact"><strong>3.96M · Nano</strong>footprint-first model</div>
         <div class="model-fact"><strong>24 kHz WAV</strong>complete waveform output</div>
         <div class="model-fact"><strong>Local stack</strong>text normalization through audio</div>
       </div>
@@ -447,7 +447,7 @@ with gr.Blocks(title="Inflect v2 · local speech playground") as demo:
         )
         with gr.Row():
             micro_audio = gr.Audio(label="Micro v2 · 9.36M · quality first")
-            nano_audio = gr.Audio(label="Nano v2 · 3.97M · footprint first")
+            nano_audio = gr.Audio(label="Nano v2 · 3.96M · footprint first")
         compare_status = gr.Markdown("", elem_classes="outputmeta")
     gr.HTML("""<p class="fineprint">Fixed English voice · English-only frontend · no voice cloning · no reference audio upload. Uncommon names, abbreviations, and long passages can still fail. Generated audio is returned to your browser; this interface does not ask for an account or personal information.</p>""")
     generate.click(synthesize_one, [text, model, speed, variation, pitch, seed], [audio, status], concurrency_limit=1, api_name="synthesize")

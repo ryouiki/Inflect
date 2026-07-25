@@ -1,10 +1,10 @@
 <h1 align="center">Inflect v2</h1>
-<p align="center"><strong>Complete 24 kHz English text-to-waveform TTS at 3.97M and 9.36M parameters.</strong><br>
+<p align="center"><strong>Complete 24 kHz English text-to-waveform TTS at 3.96M and 9.36M parameters.</strong><br>
 Two local models. One runtime. No external vocoder or hosted inference component.</p>
 
 <p align="center">
   <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Playground" src="https://img.shields.io/badge/PLAYGROUND-1769E0?style=for-the-badge&logo=huggingface&logoColor=white"></a>
-  <a href="https://huggingface.co/owensong/Inflect-Nano-v2"><img alt="Inflect Nano v2" src="https://img.shields.io/badge/NANO_3.97M-F7FAFF?style=for-the-badge&logo=huggingface&logoColor=1769E0"></a>
+  <a href="https://huggingface.co/owensong/Inflect-Nano-v2"><img alt="Inflect Nano v2" src="https://img.shields.io/badge/NANO_3.96M-F7FAFF?style=for-the-badge&logo=huggingface&logoColor=1769E0"></a>
   <a href="https://huggingface.co/owensong/Inflect-Micro-v2"><img alt="Inflect Micro v2" src="https://img.shields.io/badge/MICRO_9.36M-0B2A54?style=for-the-badge&logo=huggingface&logoColor=white"></a>
   <a href="docs/EVALUATION.md"><img alt="Evaluation" src="https://img.shields.io/badge/EVALUATION-8EC8FF?style=for-the-badge&logo=chartdotjs&logoColor=0B2A54"></a>
   <a href="https://discord.gg/CVJYedvzvp"><img alt="Discord" src="https://img.shields.io/badge/DISCORD-1769E0?style=for-the-badge&logo=discord&logoColor=white"></a>
@@ -233,7 +233,7 @@ components retain their own notices. Designed and developed independently by
 ```bibtex
 @software{song2026inflectv2,
   author = {Owen Song},
-  title = {Inflect v2: Complete Local Text-to-Waveform TTS at 3.97M and 9.36M Parameters},
+  title = {Inflect v2: Complete Local Text-to-Waveform TTS at 3.96M and 9.36M Parameters},
   year = {2026},
   url = {https://github.com/owenawsong/Inflect}
 }

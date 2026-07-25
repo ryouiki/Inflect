@@ -94,7 +94,7 @@ are outside the release.
 ```bibtex
 @software{song2026inflectv2,
   author = {Owen Song},
-  title = {Inflect v2: Complete Local Text-to-Waveform TTS at 3.97M and 9.36M Parameters},
+  title = {Inflect v2: Complete Local Text-to-Waveform TTS at 3.96M and 9.36M Parameters},
   year = {2026},
   url = {https://github.com/owenawsong/Inflect}
 }

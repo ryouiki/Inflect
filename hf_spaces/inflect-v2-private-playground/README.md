@@ -9,7 +9,7 @@ python_version: 3.12
 app_file: app.py
 pinned: false
 license: apache-2.0
-short_description: Run complete 3.97M and 9.36M text-to-waveform models live.
+short_description: Run complete 3.96M and 9.36M text-to-waveform models live.
 models:
   - owensong/Inflect-Micro-v2
   - owensong/Inflect-Nano-v2
@@ -24,7 +24,7 @@ tags:
 Live text-to-waveform inference for both Inflect v2 release models:
 
 - [Inflect-Micro-v2](https://huggingface.co/owensong/Inflect-Micro-v2): 9.36M parameters
-- [Inflect-Nano-v2](https://huggingface.co/owensong/Inflect-Nano-v2): 3.97M parameters
+- [Inflect-Nano-v2](https://huggingface.co/owensong/Inflect-Nano-v2): 3.96M parameters
 
 Every result is synthesized live from text. There is no reference audio,
 prerecorded fallback, or inference-time teacher model. Use the Compare tab to

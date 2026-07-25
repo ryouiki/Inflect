@@ -50,7 +50,7 @@
   <text class="navy value" x="737" y="220">6.28x</text>
 
   <text class="navy label" x="56" y="307">Inflect-Nano-v2</text>
-  <text class="muted meta" x="56" y="332">3.97M parameters · 15.97 MB FP32</text>
+  <text class="muted meta" x="56" y="332">3.96M parameters · 15.97 MB FP32</text>
   <rect x="300" y="277" width="715" height="60" rx="5" fill="#65bff3"/>
   <text class="navy value" x="1033" y="316">10.72x</text>
 

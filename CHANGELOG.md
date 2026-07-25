@@ -5,7 +5,7 @@
 ### Added
 
 - Inflect-Micro-v2, a complete 9.36M-parameter English text-to-waveform model.
-- Inflect-Nano-v2, a complete 3.97M-parameter English text-to-waveform model.
+- Inflect-Nano-v2, a complete 3.96M-parameter English text-to-waveform model.
 - Shared self-contained Python API and CLI for CPU and CUDA.
 - Integrated 24 kHz waveform generation with no external vocoder.
 - Deterministic seeds, speaking speed, and delivery-variation controls.

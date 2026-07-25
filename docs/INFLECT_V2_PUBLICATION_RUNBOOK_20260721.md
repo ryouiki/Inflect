@@ -44,7 +44,7 @@ validation.
 
 ## Supported Claims
 
-- Complete 24 kHz text-to-waveform models at 3.97M and 9.36M parameters.
+- Complete 24 kHz text-to-waveform models at 3.96M and 9.36M parameters.
 - Integrated waveform decoder with no external vocoder download.
 - One fixed English male voice per model.
 - Local PyTorch FP32 CPU and CUDA inference.

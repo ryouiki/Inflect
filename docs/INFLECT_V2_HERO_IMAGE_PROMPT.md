@@ -30,7 +30,7 @@ Attach the current Inflect hero image as the visual reference, then paste:
 >
 > `Inflect-Nano-v2`
 >
-> `3.97M parameters`
+> `3.96M parameters`
 >
 > `Inflect-Micro-v2`
 >

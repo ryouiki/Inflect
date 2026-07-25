@@ -78,7 +78,7 @@ MODELS = (
         role="portability-focused",
         limit="4M",
         params="3,966,721",
-        params_short="3.97M",
+        params_short="3.96M",
         weights="15.97 MB",
         utmos="4.386",
         utmos_ci="4.372–4.399",
@@ -126,7 +126,7 @@ def sample_rows(model: Model) -> str:
 
 
 def navigation(model: Model) -> str:
-    sibling_label = "Nano_3.97M" if model.repo == "Inflect-Micro-v2" else "Micro_9.36M"
+    sibling_label = "Nano_3.96M" if model.repo == "Inflect-Micro-v2" else "Micro_9.36M"
     sibling_alt = "Inflect Nano v2" if model.repo == "Inflect-Micro-v2" else "Inflect Micro v2"
     return f"""<p align="center">
   <a href="https://huggingface.co/spaces/owensong/Inflect-v2"><img alt="Live playground" src="https://img.shields.io/badge/Playground-0B2A54?style=for-the-badge&logo=huggingface&logoColor=white"></a>
