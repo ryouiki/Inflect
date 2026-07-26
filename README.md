@@ -127,7 +127,8 @@ python examples/compare_models.py \
 ### From a model repository
 
 ```bash
-git clone https://huggingface.co/owensong/Inflect-Micro-v2
+python -m pip install --upgrade huggingface_hub
+hf download owensong/Inflect-Micro-v2 --local-dir Inflect-Micro-v2
 cd Inflect-Micro-v2
 python -m pip install -r requirements.txt
 python inference.py --text "Small models can still speak clearly." --output out.wav
@@ -181,6 +182,7 @@ corpus construction and full optimization infrastructure are not included.
 **Supported**
 
 - local PyTorch FP32 inference on CPU and CUDA;
+- ONNX Runtime inference for published ONNX packages;
 - one fixed English male voice per model;
 - deterministic seeds, speaking speed, and delivery variation;
 - punctuation-aware long-text chunking;
@@ -190,7 +192,7 @@ corpus construction and full optimization infrastructure are not included.
 
 - voice cloning, selectable speakers, female voices, or multilingual speech;
 - acoustic streaming or measured time-to-first-audio;
-- validated ONNX, GGUF, Core ML, TFLite, FP16, or integer-quantized exports;
+- GGUF, Core ML, TFLite, FP16, or integer-quantized exports;
 - use for medical, legal, emergency, or accessibility-critical communication.
 
 ## Documentation
@@ -201,6 +203,7 @@ corpus construction and full optimization infrastructure are not included.
 | [Evaluation](docs/EVALUATION.md) | Protocols, metrics, comparison policy, and reproducibility |
 | [Architecture](docs/ARCHITECTURE.md) | Shipped inference path and parameter accounting |
 | [Technical report](docs/INFLECT_V2_TECHNICAL_REPORT.md) | Compact system and evaluation report |
+| [Language and fixed-voice adaptation](finetune/README.md) | Prepare data, audit splits, train, resume, evaluate, and export adapted models |
 | [Release notes](docs/INFLECT_V2_RELEASE_NOTES_20260721.md) | Frozen v2 capabilities, results, and limitations |
 | [Project structure](PROJECT_STRUCTURE.md) | Public code, research code, and release boundaries |
 | [Contributing](CONTRIBUTING.md) | Reproducible bug reports and contribution standards |
