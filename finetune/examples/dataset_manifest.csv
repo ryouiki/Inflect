@@ -1,0 +1,4 @@
+audio,text
+audio/000001.wav,"Esta es una grabacion de ejemplo para preparar el conjunto de datos."
+audio/000002.wav,"Los datos reales deben incluir transcripciones revisadas y audio de un solo hablante."
+audio/000003.wav,"Los numeros, nombres propios y signos de puntuacion necesitan cobertura explicita."

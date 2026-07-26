@@ -1,0 +1,13 @@
+{
+  "checkpoint": "runs/my-language/checkpoints/adaptation-final.pth",
+  "prepared_dataset": "prepared/my-language",
+  "config": "path/to/Inflect-Micro-v2/config.json",
+  "symbols": "prepared/my-language/symbols.json",
+  "frontend_hook": null,
+  "package_template": "path/to/Inflect-Micro-v2",
+  "output_dir": "exports/my-language",
+  "include_onnx": true,
+  "onnx_opset": 17,
+  "model_name": "My-Inflect-Adaptation",
+  "source_revision": "local-training-run"
+}
