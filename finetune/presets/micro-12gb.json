@@ -1,0 +1,11 @@
+{
+  "batch_size": 2,
+  "gradient_accumulation_steps": 4,
+  "learning_rate_g": 0.00008,
+  "learning_rate_d": 0.00008,
+  "max_steps": 20000,
+  "num_workers": 3,
+  "amp": true,
+  "checkpoint_interval": 1000,
+  "validation_interval": 500
+}

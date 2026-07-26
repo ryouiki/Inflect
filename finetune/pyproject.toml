@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inflect-finetune"
+version = "0.1.0"
+description = "Generic language and fixed-voice adaptation toolkit for Inflect v2"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
+  "soundfile>=0.12,<1",
+  "torch>=2.2",
+  "phonemizer>=3.2,<4",
+  "espeakng-loader>=0.2.4,<1",
+  "huggingface-hub>=0.27,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.8,<1",
+]
+onnx = [
+  "onnx>=1.16,<2",
+  "onnxruntime>=1.18,<2",
+]
+
+[project.scripts]
+inflect-adapt = "inflect_finetune.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["inflect_finetune*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

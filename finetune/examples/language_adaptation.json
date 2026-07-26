@@ -1,0 +1,16 @@
+{
+  "format": "inflect_adaptation_example_v1",
+  "language": "es",
+  "frontend": {
+    "type": "espeak",
+    "language": "es",
+    "preserve_punctuation": true,
+    "with_stress": true
+  },
+  "audio": {
+    "sample_rate": 24000,
+    "channels": 1
+  },
+  "base_model": "owensong/Inflect-Micro-v2",
+  "notes": "Example only. Supply audio recorded with the fixed voice you want the adapted checkpoint to use."
+}
