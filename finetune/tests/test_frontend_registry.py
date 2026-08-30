@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 import unicodedata
 from pathlib import Path
@@ -17,15 +18,6 @@ from inflect_finetune.frontends import (
     registry_names,
     registry_record,
     resolve,
-)
-from inflect_finetune.frontends.ja_openjtalk import (
-    ACCENT_FALL,
-    ACCENT_PHRASE_BOUNDARY,
-    ACCENT_RISE,
-    DECLARED_SYMBOLS,
-    PAUSE_SYMBOL,
-    PHONE_TO_IPA,
-    PUNCTUATION_MAP,
 )
 from inflect_finetune.prepare import PrepareOptions
 from inflect_finetune.symbols import BASE_SYMBOLS
@@ -128,64 +120,83 @@ def test_prepare_options_accept_a_bundled_frontend_without_a_hook() -> None:
         ).validate()
 
 
-def test_japanese_mapping_stays_inside_the_released_symbol_inventory() -> None:
-    """Japanese must add no embedding rows.
+def _language_module(name: str):
+    """Import one bundled frontend's module by its registry entry."""
+    return importlib.import_module(
+        f"inflect_finetune.frontends.{REGISTRY[name].module_file.stem}"
+    )
 
-    A prepared inventory that extends the release inventory changes the symbol
-    count, and a checkpoint whose inventory is no longer the release inventory
-    cannot warm-start a later adaptation run.
+
+@pytest.mark.parametrize("name", registry_names())
+def test_bundled_frontend_adds_no_symbols_to_the_released_inventory(name: str) -> None:
+    """The whole point of a bundled frontend is that it costs no embedding rows.
+
+    An extended inventory changes the symbol count, and a checkpoint whose
+    inventory is no longer the release inventory cannot warm-start a later run.
     """
-    base = set(BASE_SYMBOLS)
-    emitted: set[str] = set()
-    for phonemes in PHONE_TO_IPA.values():
-        emitted.update(unicodedata.normalize("NFC", phonemes))
-    emitted.update(PUNCTUATION_MAP.values())
-    emitted.update({ACCENT_RISE, ACCENT_FALL, ACCENT_PHRASE_BOUNDARY, PAUSE_SYMBOL})
-
-    assert sorted(emitted - base) == []
+    declared = _language_module(name).DECLARED_SYMBOLS
+    assert sorted(set(declared) - set(BASE_SYMBOLS)) == []
 
 
-def test_japanese_declared_symbols_are_valid_and_complete() -> None:
-    declared = set(DECLARED_SYMBOLS)
-    assert len(DECLARED_SYMBOLS) == len(declared)
-    assert all(isinstance(symbol, str) and len(symbol) == 1 for symbol in DECLARED_SYMBOLS)
-    assert DECLARED_SYMBOLS == tuple(sorted(DECLARED_SYMBOLS))
+@pytest.mark.parametrize("name", registry_names())
+def test_bundled_frontend_declares_a_valid_symbol_inventory(name: str) -> None:
+    declared = _language_module(name).DECLARED_SYMBOLS
+    assert declared
+    assert len(declared) == len(set(declared))
+    assert all(isinstance(symbol, str) and len(symbol) == 1 for symbol in declared)
+    assert declared == tuple(sorted(declared))
+    assert all(
+        unicodedata.normalize("NFC", symbol) == symbol for symbol in declared
+    )
 
-    for phonemes in PHONE_TO_IPA.values():
-        assert set(phonemes) <= declared
-    assert set(PUNCTUATION_MAP.values()) <= declared
-    assert {ACCENT_RISE, ACCENT_FALL, ACCENT_PHRASE_BOUNDARY, PAUSE_SYMBOL} <= declared
 
-
+@pytest.mark.parametrize(
+    ("name", "dependency"),
+    [("ja-openjtalk", "pyopenjtalk"), ("ko-g2pkk", "g2pkk")],
+)
 def test_a_missing_language_dependency_fails_before_any_data_is_touched(
+    name: str,
+    dependency: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Preparation validates the frontend first; a missing extra must stop it there.
 
-    Loading Open JTalk lazily would let preparation start and fail part-way
+    Loading the engine lazily would let preparation start and fail part-way
     through a corpus instead.
     """
     from inflect_finetune import frontend as frontend_module
-    from inflect_finetune.frontends.ja_openjtalk import create_frontend
 
-    monkeypatch.setitem(sys.modules, "pyopenjtalk", None)
+    monkeypatch.setitem(sys.modules, dependency, None)
     # validate_frontend reuses an already-constructed frontend, which would hide
     # the failure in a session where another test built it successfully.
     monkeypatch.setattr(frontend_module, "_CUSTOM_FRONTENDS", {})
 
-    with pytest.raises(RuntimeError, match="requires Open JTalk"):
-        create_frontend(language="ja")
-    with pytest.raises(frontend_module.FrontendError, match="requires Open JTalk"):
-        frontend_module.validate_frontend(resolve("ja-openjtalk", "ja"))
+    entry = REGISTRY[name]
+    with pytest.raises(RuntimeError, match="requires"):
+        _language_module(name).create_frontend(language=entry.language)
+    with pytest.raises(frontend_module.FrontendError, match="requires"):
+        frontend_module.validate_frontend(resolve(name, entry.language))
 
 
+@pytest.mark.parametrize(
+    ("name", "dependency"),
+    [("ja-openjtalk", "pyopenjtalk"), ("ko-g2pkk", "g2pkk")],
+)
 def test_symbol_tables_are_readable_without_the_language_dependency(
+    name: str,
+    dependency: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The mapping must be inspectable so its coverage stays checked in CI."""
-    monkeypatch.setitem(sys.modules, "pyopenjtalk", None)
-    module = importlib.reload(
-        importlib.import_module("inflect_finetune.frontends.ja_openjtalk")
-    )
+    monkeypatch.setitem(sys.modules, dependency, None)
+    # Load a private copy from the file. Reloading the shared module would
+    # rebind its classes, and every later test comparing against the originals
+    # would then see a different exception type.
+    source = REGISTRY[name].module_file
+    spec = importlib.util.spec_from_file_location(f"_probe_{source.stem}", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
     assert module.DECLARED_SYMBOLS
-    assert set(module.PHONE_TO_IPA)
+    assert module.PUNCTUATION_MAP

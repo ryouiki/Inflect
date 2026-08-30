@@ -342,44 +342,64 @@ def create_frontend(*, language):
 """.lstrip()
 
 
-def _japanese_source(root: Path, texts: list[str]) -> Path:
+def _bundled_source(root: Path, texts: list[str]) -> Path:
     root.mkdir(parents=True)
     rows: list[dict[str, str]] = []
     for index, text in enumerate(texts):
-        audio_name = f"ja-{index}.wav"
+        audio_name = f"row-{index}.wav"
         _write_wav(root / audio_name, 210.0 + index * 41.0)
-        rows.append({"audio": audio_name, "text": text, "speaker": "voice-ja"})
+        rows.append({"audio": audio_name, "text": text, "speaker": "voice-a"})
     return _write_manifest(root, rows)
 
 
-def test_bundled_japanese_frontend_prepares_without_new_symbols(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("frontend", "language", "dependency", "texts"),
+    [
+        (
+            "ja-openjtalk",
+            "ja",
+            "pyopenjtalk",
+            [
+                "こんにちは、今日はいい天気ですね。",
+                "彼女は2026年8月30日に来ます。",
+                "よろしくお願いします。",
+                "本当に美味しいお茶でした。",
+            ],
+        ),
+        (
+            "ko-g2pkk",
+            "ko",
+            "g2pkk",
+            [
+                "안녕하세요, 오늘 날씨가 참 좋네요.",
+                "그녀는 2026년 8월 30일에 옵니다.",
+                "국물 좀 드세요.",
+                "값이 없는 걸 밟았다.",
+            ],
+        ),
+    ],
+)
+def test_a_bundled_frontend_prepares_without_new_symbols(
+    tmp_path: Path,
+    frontend: str,
+    language: str,
+    dependency: str,
+    texts: list[str],
+) -> None:
     pytest.importorskip(
-        "pyopenjtalk",
-        reason="The Japanese frontend needs the 'ja' extra (pyopenjtalk-plus).",
+        dependency,
+        reason=f"The {language} frontend needs its extra installed.",
     )
-    manifest = _japanese_source(
-        tmp_path / "source",
-        [
-            "こんにちは、今日はいい天気ですね。",
-            "彼女は2026年8月30日に来ます。",
-            "よろしくお願いします。",
-            "本当に美味しいお茶でした。",
-        ],
-    )
+    manifest = _bundled_source(tmp_path / "source", texts)
     output = tmp_path / "prepared"
-    metadata = _prepare(
-        manifest,
-        output,
-        language="ja",
-        frontend="ja-openjtalk",
-    )
+    metadata = _prepare(manifest, output, language=language, frontend=frontend)
 
     # The bundled frontend resolves to the custom contract export understands,
     # while the registry name stays recorded for reproducibility.
     assert metadata["frontend"]["type"] == "custom"
-    assert metadata["frontend"]["registry"]["name"] == "ja-openjtalk"
-    assert metadata["frontend"]["registry"]["language"] == "ja"
-    assert metadata["frontend"]["hook"]["declared_metadata"]["name"] == "ja-openjtalk"
+    assert metadata["frontend"]["registry"]["name"] == frontend
+    assert metadata["frontend"]["registry"]["language"] == language
+    assert metadata["frontend"]["hook"]["declared_metadata"]["name"] == frontend
     assert metadata["diagnostics"]["added_symbol_count"] == 0
     assert metadata["diagnostics"]["base_symbol_coverage_fraction"] == 1.0
 

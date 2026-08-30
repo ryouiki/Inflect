@@ -46,18 +46,28 @@ def read_sentences(path: Path) -> list[str]:
 
 
 def reading_lookup(language: str) -> Any:
-    """Return a kana reader for Japanese, or None when one is unavailable."""
-    if not (language == "ja" or language.startswith("ja-")):
-        return None
-    try:
-        import pyopenjtalk
-    except ImportError:
-        return None
+    """Return a reader that shows the reading in the language's own script.
 
-    def read(text: str) -> str:
-        return str(pyopenjtalk.g2p(text, kana=True))
-
-    return read
+    Reviewers cannot check pronunciation from IPA at speed. Japanese is shown
+    as kana and Korean as pronounced Hangul. Returns None when the language has
+    no reader or its dependency is missing.
+    """
+    base = language.split("-", 1)[0]
+    if base == "ja":
+        try:
+            import pyopenjtalk
+        except ImportError:
+            return None
+        return lambda text: str(pyopenjtalk.g2p(text, kana=True))
+    if base == "ko":
+        try:
+            from g2pkk import G2p
+        except ImportError:
+            return None
+        engine = G2p()
+        # One eojeol at a time, matching what the frontend does.
+        return lambda text: " ".join(engine(word) for word in text.split())
+    return None
 
 
 def review_rows(

@@ -26,6 +26,7 @@ python -m inflect_finetune prepare \
 | Name | Language | Extra | Notes |
 | --- | --- | --- | --- |
 | `ja-openjtalk` | `ja` | `ja` | Open JTalk G2P with pitch-accent marks |
+| `ko-g2pkk` | `ko` | `ko` | g2pkk phonology mapped directly from Hangul |
 
 A bundled frontend is a name for a custom frontend that ships with the toolkit.
 It is recorded in `dataset.json` as a custom frontend plus a `registry` block,
@@ -36,7 +37,7 @@ recovers the bundled hook file by itself; `--frontend-hook` is not needed.
 Install its extra before preparing:
 
 ```bash
-python -m pip install ".[ja]"
+python -m pip install ".[ja]"   # or ".[ko]"
 ```
 
 The underlying dictionary is a third-party artifact under its own license. A
@@ -94,13 +95,73 @@ object of surface/reading pairs and point `INFLECT_JA_LEXICON` at it:
 Its contents are part of the hashed frontend metadata, so changing the lexicon
 correctly invalidates an export prepared with the previous one.
 
+### Korean
+
+`ko-g2pkk` runs g2pkk to obtain the pronunciation as Hangul, then maps that
+surface form to phonemes directly. Hangul is featural, so the mapping is a
+mechanical syllable decomposition once the phonology has been applied.
+
+eSpeak is deliberately not in this chain. Its Korean voice merges the
+three-way laryngeal contrast — 살/쌀, 자다/짜다, 불/뿔, 방/빵, 정/쩡, and 사/싸
+each come back as a single phoneme string. A merged pair is a phonemic
+collision no amount of data can undo.
+
+Tense consonants are written with `ʼ` and aspirated ones with `ʰ`, both from
+the released inventory, so the contrast costs no new symbols. Korean has no
+lexical pitch accent, so nothing corresponds to the Japanese accent marks;
+spaces are eojeol boundaries.
+
+Phonology is applied one eojeol at a time. Given a whole sentence, g2pkk
+applies liaison across word boundaries and produces different words: 오늘 날씨
+becomes 오늘 랄씨 and 희망을 얘기 becomes 히망으 럐기. The cost is that genuine
+cross-boundary nasalization is missed — 몇 년 stays 멷 년 rather than 면 년 —
+which reads as careful speech rather than as the wrong word.
+
+**Latin letters and bare jamo are refused.** g2pkk reads some acronyms
+incorrectly while consuming them entirely: `IT` becomes the syllable 읻 and
+`AI` becomes 아이, leaving nothing behind to detect. Checking the output would
+miss exactly the cases that matter, so the check runs on the normalized input.
+Supply readings through a lexicon and point `INFLECT_KO_LEXICON` at it:
+
+```json
+{"AI": "에이아이", "IT": "아이티", "TV": "티비"}
+```
+
+`examples/korean_reading_lexicon.json` is a starting point. Nothing is applied
+by default — the frontend does not guess a reading.
+
+Numbers are left for g2pkk, which reads digit-grouping commas correctly
+(3,000 → 삼천). Only the decimal point is rewritten, as 점, because g2pkk
+leaves it unread.
+
+Known g2pkk limits, to check against your own transcripts:
+
+- 세기, 층, and 장 take a digit-by-digit reading for multi-digit numbers
+  (21세기 → 이일세기, not 이십일세기). Write the number in Hangul or add a
+  lexicon entry.
+- A bare number with no counter is read digit by digit.
+- Tensification is occasionally under-applied (여덟 시 → 여덜 시).
+
+Dump readings for a fluent speaker before training:
+
+```bash
+python examples/frontend_review_dump.py \
+  --sentences examples/korean_review_suite.txt \
+  --frontend ko-g2pkk --language ko \
+  --output review/ko.tsv
+```
+
 ## eSpeak frontend
 
-**Do not use eSpeak for Japanese.** It has a `ja` voice, but it cannot read
-kanji: it emits the literal English words "chinese letter" for each one, so all
-kanji text is lost. Use `ja-openjtalk` instead. Confirm that eSpeak produces a
-sensible result for your language before relying on it — availability of a
-voice is not evidence of usable output.
+**Do not use eSpeak for Japanese or Korean.** It has voices for both, and
+neither is usable. For Japanese it cannot read kanji at all — it emits the
+literal English words "chinese letter" for each one. For Korean it merges the
+tense/plain consonant contrast, so 살 and 쌀 become the same phoneme string.
+Use `ja-openjtalk` and `ko-g2pkk`.
+
+Confirm that eSpeak produces a sensible result for your language before relying
+on it. Availability of a voice is not evidence of usable output, and the way it
+fails is not always visible without checking minimal pairs.
 
 The built-in frontend uses `phonemizer` with eSpeak NG:
 

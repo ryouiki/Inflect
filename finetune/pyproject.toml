@@ -33,6 +33,10 @@ onnx = [
 ja = [
   "pyopenjtalk-plus>=0.4,<0.5",
 ]
+# Korean frontend. g2pkk pulls in the prebuilt python-mecab-ko wheels.
+ko = [
+  "g2pkk>=0.1.2,<0.2",
+]
 
 [project.scripts]
 inflect-adapt = "inflect_finetune.cli:main"

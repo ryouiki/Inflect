@@ -58,6 +58,17 @@ REGISTRY: dict[str, RegistryEntry] = {
             "Install the 'ja' extra."
         ),
     ),
+    "ko-g2pkk": RegistryEntry(
+        name="ko-g2pkk",
+        module_file=_BUNDLE_ROOT / "ko_g2pkk.py",
+        factory="create_frontend",
+        language="ko",
+        extras=("ko",),
+        summary=(
+            "Korean g2pkk phonology with a direct Hangul-to-phoneme mapping. "
+            "Install the 'ko' extra."
+        ),
+    ),
 }
 
 

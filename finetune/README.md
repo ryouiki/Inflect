@@ -14,7 +14,7 @@ internal checkpoint-selection process.
 - deterministic 24 kHz mono preparation
 - leakage-safe train/validation splitting by transcript and recording group
 - eSpeak, prephonemized, bundled, and explicit custom Python frontends
-- a Japanese frontend that adds no symbols to the released inventory
+- Japanese and Korean frontends that add no symbols to the released inventory
 - symbol-aware embedding migration from Micro or Nano
 - staged generator/discriminator training with AMP and accumulation
 - atomic checkpoints and strict same-run resume validation
@@ -89,8 +89,9 @@ and deterministic nonempty train/validation splits. Do not train until audit
 passes and a fluent speaker has inspected representative normalized text and
 phonemes.
 
-Some languages ship a bundled frontend instead. Japanese needs one, because
-eSpeak cannot read kanji:
+Some languages ship a bundled frontend instead. Japanese needs one because
+eSpeak cannot read kanji, and Korean because eSpeak merges the tense/plain
+consonant contrast:
 
 ```bash
 python -m pip install ".[ja]"
