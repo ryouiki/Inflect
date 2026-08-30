@@ -31,6 +31,8 @@
 
 아래는 추정이 아니라 이 저장소에서 실행해 확인한 결과다. 재현 명령은 §6.3에 있다.
 
+> 코드 인용은 **심볼 이름이 정본**이다. 줄 번호는 편집으로 즉시 어긋나므로 쓰지 않는다.
+
 | # | 사실 | 근거 | 함의 |
 |---|---|---|---|
 | V1 | **일본어 음소 전체가 릴리스 178심볼 인벤토리 안에 있다.** OpenJTalk 음소 집합(모음5·무성화5·`N`·`cl`·`pau` + 자음 30여)을 IPA로 매핑했을 때 신규 심볼 **0개** | `symbols.BASE_SYMBOLS` 대조 | 임베딩 마이그레이션이 전 행 복사. 랜덤 초기화 행 없음 |
@@ -40,9 +42,9 @@
 | V5 | **`pyopenjtalk-plus` 0.4.1이 prebuilt wheel로 설치된다.** 본가 `pyopenjtalk`는 py3.10 wheel 없음(소스 빌드 필요) | `pip install --only-binary=:all:` | 일본어 의존성이 컴파일러 없이 해결됨 |
 | V6 | **`g2pkk` + espeak `ko` 조합이 음운 규칙을 IPA까지 전달한다.** `있습니다`→`읻씀니다`→`ˈid-s-ɯmnˌidɐ`, `국물`→`궁물`→`ɡˈuŋmuɫ`, `신라면`→`실라면`→`silˈɐmjʌn` | 실행 | 한국어 2단 구조(G2P→IPA) 확정 |
 | V7 | **pyopenjtalk가 supertonic이 어휘사전으로 고쳐야 했던 항목을 그냥 맞게 읽는다.** `抗うつ剤`→コーウツザイ, `対策`→タイサク, `痛み止め薬`→イタミドメヤク, `2026年8月30日`→ニセンニジューロクネンハチガツサンジューニチ | 실행 | supertonic의 `jf-surgical-v1~v6` 아크는 이식 대상이 아님(§5.1) |
-| V8 | **2단계 체이닝이 현재 코드로 동작한다.** `export`가 `config.json`+`model.pth`+`runtime/`을 쓰고 `resolve_base_model()`이 로컬 디렉터리를 받는다 | `exporting.py:1541-1568`, `modeling.py:69` | 언어 베이스 → 화자 적응 가능 |
-| V9 | **단, 심볼 수가 정확히 178이 아니면 체이닝이 깨진다.** `load_runtime_components()`가 `len(symbols) != 178`에서 `RuntimeError` | `modeling.py:210-213` | V1/V2 덕분에 오늘은 문제없지만 **단일 실패점**(§2.2) |
-| V10 | **다화자 준비가 하드 블록이다.** speaker 값이 2개 이상이면 `prepare`/`audit`이 즉시 실패 | `prepare.py:262`, `audit.py:253` | 언어 베이스 단계에 우회 필요 |
+| V8 | **2단계 체이닝이 현재 코드로 동작한다.** `export`가 `config.json`+`model.pth`+`runtime/`을 쓰고 `resolve_base_model()`이 로컬 디렉터리를 받는다 | `exporting.export_checkpoint()`, `modeling.resolve_base_model()` | 언어 베이스 → 화자 적응 가능 |
+| V9 | **단, 심볼 수가 정확히 178이 아니면 체이닝이 깨진다.** `load_runtime_components()`가 `len(symbols) != 178`에서 `RuntimeError` | `modeling.load_runtime_components()` | V1/V2 덕분에 오늘은 문제없지만 **단일 실패점**(§2.2) |
+| V10 | **다화자 준비가 하드 블록이다.** speaker 값이 2개 이상이면 `prepare`/`audit`이 즉시 실패 | `prepare_dataset()` · `audit_dataset()`의 speaker 가드 | 언어 베이스 단계에 우회 필요 |
 
 ### 확인하지 못한 것
 
@@ -100,9 +102,9 @@ V1/V2로 JA·KO 모두 신규 심볼 0개가 가능하다. 이걸 **우연이 �
 
 1. `audit`에 `--require-no-new-symbols` 추가. 프론트엔드 수정이 조용히 심볼을 늘리는
    회귀를 잡는다.
-2. `modeling.py:210-213`의 `!= 178` 검사를 **`>= 178` + base prefix 일치**로 완화한다.
+2. `modeling.load_runtime_components()`의 `!= 178` 검사를 **`>= 178` + base prefix 일치**로 완화한다.
    지금은 신규 심볼이 하나라도 생기면 그 체크포인트를 다음 단계의 `--base`로 못 쓴다.
-   완화 후에도 `load_symbols()`의 prefix 검증(`modeling.py:150-166`)이 정체성을 지킨다.
+   완화 후에도 `modeling.load_symbols()`의 prefix 검증이 정체성을 지킨다.
 
 이 두 개는 서로를 보완한다. (1)은 "심볼을 늘리지 마라", (2)는 "늘려야만 하는 언어가
 나왔을 때 막다른 길이 아니게 하라"이다. (1)은 M1에서 구현됐다. (2)는 M3에 남아 있고,
@@ -124,7 +126,7 @@ stage 2  단일 화자 (고 F0 여성) ──> 제품 체크포인트 (음색·�
 - `language-base`: 다화자 허용. `dataset.json`에 `corpus_role`과 화자 목록을 기록하고,
   `PREPARATION_REPORT.txt`에 "이 데이터셋은 화자 정체성 학습에 쓸 수 없다"를 명시.
 
-`audit.py:253`의 동일 가드도 `corpus_role`을 읽도록 한다. 기본 동작은 바뀌지 않는다.
+`audit_dataset()`의 동일 가드도 `corpus_role`을 읽도록 한다. 기본 동작은 바뀌지 않는다.
 
 ### 2.4 F4 — 평가 확장
 
@@ -143,7 +145,7 @@ stage 2  단일 화자 (고 F0 여성) ──> 제품 체크포인트 (음색·�
 
 ### 2.5 F5 — 배포 패키징
 
-`_write_deployment_runtime()`(`exporting.py:1130`)이 레지스트리 프론트엔드를 인식하고,
+`exporting._write_deployment_runtime()`이 레지스트리 프론트엔드를 인식하고,
 생성 런타임에 (a) 프론트엔드 모듈, (b) `requirements-frontend.txt`, (c) 사전/의존성이
 없을 때 **영어로 조용히 폴백하지 않고 실패**하는 경로를 쓰게 한다. 마지막 항목은
 CONTRACT.md의 검증 게이트에 이미 있는 요구사항이다.
@@ -191,11 +193,15 @@ python examples/frontend_review_dump.py \
 **(c) 미완**: 화자 검수는 CUDA 머신 인계 후. 커버리지 스위트는 프론트엔드 동작을 덮지
 코퍼스를 대표하지 않으므로, 실제 전사 무작위 표본에 대해서도 같은 덤프를 돌린다.
 
-**검수 덤프가 잡아낸 결함 2건(수정 완료)** — 스위트가 그냥 통과했다면 발견하지 못했다:
-1. 소수점이 문장 끝으로 처리돼 `1.5キロ`가 「イチ。ゴキロ」로 읽혔다. 숫자 사이 `.`·`,`는
+**검수·리뷰가 잡아낸 결함 3건(전부 수정 + 테스트 잠금)** — 스위트가 그냥 통과했다면
+발견하지 못했다:
+1. 소수점이 문장 끝으로 처리돼 `1.5キロ`가 「イチ。ゴキロ」로 읽혔다. 숫자 사이 `.`는
    분할 대상에서 제외했다.
 2. `3,000円`이 「サン ゼロゼロゼロ」로 읽혔다. Open JTalk은 자릿수 구분 쉼표를 모른다 —
    정규화에서 제거한다.
+3. **(2)의 첫 수정이 과잉이었다.** `(?<=\d),(?=\d)`가 `1,2,3`을 `123`으로 합쳤다 —
+   고치려던 것보다 나쁜 조용한 데이터 손상. 자릿수 쉼표는 **정확히 세 자리**가 뒤따를
+   때만 제거하고, 살아남은 쉼표는 열거 구분자로 분할한다.
 
 ### M2 — 데이터 준비 (일본어)
 
@@ -255,13 +261,13 @@ held-out 합성이 일본어로 들린다(정체성·품질 불문).
 | C4 | `ja_openjtalk.py` | `frontends/ja_openjtalk.py` | M1 | ✅ 완료. pyopenjtalk-plus |
 | C5 | `--require-no-new-symbols` | `audit.py`, `cli.py` | M1 | ✅ 완료 |
 | C5b | export의 동봉 훅 자동 해석 | `cli.py` | M1 | ✅ 완료. 없으면 JA 경로가 end-to-end로 닫히지 않는다 |
-| C6 | 178 → `>=178 + prefix` 완화 | `modeling.py:210-213` | M3 | **체이닝 단일 실패점** |
-| C7 | `--corpus-role` (다화자 허용) | `prepare.py:262`, `audit.py:253` | M3 | 기본 동작 불변 |
-| C8 | F0 진단 추가 | `evaluation.py:241-302` | M4 | |
+| C6 | 178 → `>=178 + prefix` 완화 | `modeling.load_runtime_components()` | M3 | **체이닝 단일 실패점** |
+| C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | 기본 동작 불변 |
+| C8 | F0 진단 추가 | `evaluation._signal_metrics()` | M4 | |
 | C9 | ASR/CER 플러그인 (JA/KO) | `examples/` | M4 | 자동 다운로드 금지 유지 |
 | C10 | 블라인드 A/B 페이지 생성기 | 신규 | M4 | |
 | C11 | `ko_g2pkk.py` | 신규 | M5 | **다른 파일 변경 0을 목표** |
-| C12 | 배포 런타임 프론트엔드 패키징 | `exporting.py:1130-1160` | M6 | |
+| C12 | 배포 런타임 프론트엔드 패키징 | `_write_deployment_runtime()` | M6 | |
 
 학습 코어(`training.py`), 임베딩 마이그레이션(`checkpoint.py`), 분할 로직은 **변경
 대상이 아니다.**

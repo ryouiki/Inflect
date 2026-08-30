@@ -41,6 +41,24 @@ eSpeak versions when reporting the problem.
 If only specific text fails, reduce it to the smallest reproducible input and
 inspect unsupported symbols, language mixing, and normalization.
 
+## Bundled frontend failure
+
+A bundled frontend needs its extra installed, for example `pip install ".[ja]"`
+for `ja-openjtalk`. It also requires the language it declares, so
+`--frontend ja-openjtalk` must be paired with `--language ja`.
+
+If preparation fails on specific rows, reduce the transcript to the smallest
+failing text. A row that is only punctuation, brackets, or a bare long-vowel
+mark has no reading and is rejected rather than silently dropped; fix the
+transcript instead of the frontend.
+
+Export recovers the bundled hook from the prepared dataset. If it still asks
+for `--frontend-hook`, the dataset was prepared with `--frontend custom` and
+your own file, or `--prepared-dataset` was not passed.
+
+A hook source hash mismatch at export means the toolkit version changed after
+preparation. Re-prepare with the current version rather than overriding it.
+
 ## Unknown symbols
 
 Do not delete unknown symbols from prepared text. Determine whether:

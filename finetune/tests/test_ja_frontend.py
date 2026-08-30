@@ -165,6 +165,12 @@ def test_digit_grouping_commas_are_removed_before_reading(
     assert frontend.normalize("1,234,567円") == "1234567円"
     assert "saɴzeɴ" in _bare(_phonemes(frontend, "定価は3,000円でした。"))
 
+    # A grouping comma is followed by exactly three digits. Matching any digit
+    # would silently join an enumeration into one number.
+    for enumeration in ("1,5", "1,2,3", "12,3456"):
+        assert frontend.normalize(enumeration) == enumeration
+    assert _phonemes(frontend, "1,2,3") == "i↑tɕi, ni, sa↑ɴ"
+
     # A comma that is not a digit separator still separates chunks.
     assert frontend.normalize("はい,そうです") == "はい,そうです"
     assert "," in _phonemes(frontend, "えっと、そうですね。")

@@ -18,6 +18,7 @@ exports.
 | Resample and validate 24 kHz mono audio | Implemented and tested |
 | Leakage-safe train/validation splitting | Implemented and tested |
 | eSpeak language frontend | Implemented |
+| Bundled language frontend (`ja-openjtalk`) | Implemented and source-hashed |
 | Prephonemized input | Implemented |
 | Explicit custom Python frontend | Implemented and source-hashed |
 | Warm-start Micro or Nano | Implemented; Nano CUDA smoke-tested |

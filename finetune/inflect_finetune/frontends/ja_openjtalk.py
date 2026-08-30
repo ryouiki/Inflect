@@ -127,11 +127,13 @@ _MORA_FINAL_PHONES = frozenset("aiueoAIUEO") | {"N", "cl"}
 _PHONE_PATTERN = re.compile(r"\-(.+?)\+")
 _ACCENT_PATTERN = re.compile(r"/A:(-?\d+)\+(\d+)\+(\d+)")
 _PHRASE_PATTERN = re.compile(r"/F:(\d+)_")
-# '.' and ',' also occur inside numbers, where splitting would turn 1.5 into
-# two sentences and 3,000 into two numbers. They separate chunks only when a
-# digit is not on both sides.
-_GROUPING_COMMA = re.compile(r"(?<=[0-9]),(?=[0-9])")
-_NUMERIC_MARKS = ".,"
+# A digit-grouping comma is followed by exactly three digits. Matching any
+# digit instead would silently join an enumeration: 1,2,3 into 123.
+_GROUPING_COMMA = re.compile(r"(?<=[0-9]),(?=[0-9]{3}(?![0-9]))")
+# '.' also occurs inside numbers, where splitting would turn 1.5 into two
+# sentences. It separates chunks only when a digit is not on both sides. Any
+# comma that survives normalization is a list separator, so it always splits.
+_NUMERIC_MARKS = "."
 _SENTENCE_MARKS = "".join(sorted(set(PUNCTUATION_MAP) - set(_NUMERIC_MARKS)))
 _SPLIT_PATTERN = re.compile(
     "("
@@ -195,6 +197,11 @@ class JapaneseOpenJTalkFrontend:
         self._lexicon = dict(lexicon) if lexicon is not None else _load_environment_lexicon()
         self._lexicon_pattern = self._build_lexicon_pattern()
         self._engine: Any | None = None
+        # Load here, not on first use: preparation validates the frontend before
+        # touching any data, and a missing dependency should stop it there
+        # rather than part-way through a corpus. The module itself stays
+        # importable without Open JTalk so the symbol tables can be inspected.
+        self._open_jtalk()
 
     def _build_lexicon_pattern(self) -> re.Pattern[str] | None:
         if not self._lexicon:

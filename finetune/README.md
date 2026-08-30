@@ -13,7 +13,8 @@ internal checkpoint-selection process.
 - JSONL and CSV manifests with strict path and audio validation
 - deterministic 24 kHz mono preparation
 - leakage-safe train/validation splitting by transcript and recording group
-- eSpeak, prephonemized, and explicit custom Python frontends
+- eSpeak, prephonemized, bundled, and explicit custom Python frontends
+- a Japanese frontend that adds no symbols to the released inventory
 - symbol-aware embedding migration from Micro or Nano
 - staged generator/discriminator training with AMP and accumulation
 - atomic checkpoints and strict same-run resume validation
@@ -226,7 +227,7 @@ fluent-speaker review.
 - [Custom G2P/frontend hooks](docs/CUSTOM_G2P.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Consent and responsible use](docs/RESPONSIBLE_USE.md)
-- [Multilingual extension roadmap (planned work)](docs/MULTILINGUAL_ROADMAP.md)
+- [Multilingual extension roadmap](docs/MULTILINGUAL_ROADMAP.md)
 
 ## Release gate
 

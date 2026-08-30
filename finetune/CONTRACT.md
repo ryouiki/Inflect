@@ -49,8 +49,9 @@ Prepared rows may also preserve `id`, `speaker`, `group_id`, and
 `phonemes` for prephonemized preparation.
 
 `dataset.json` records the language, sample rate, frontend, source-manifest
-hash, frontend source/metadata hashes where applicable, speaker, split seed,
-row counts, and aggregate diagnostics. `symbols.json` records the ordered
+hash, frontend source/metadata hashes where applicable, the bundled frontend
+name where one was used, speaker, split seed, row counts, and aggregate
+diagnostics. `symbols.json` records the ordered
 symbol inventory and its relationship to the base inventory.
 
 ## Checkpoint migration

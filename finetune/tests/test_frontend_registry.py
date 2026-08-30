@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -153,3 +155,37 @@ def test_japanese_declared_symbols_are_valid_and_complete() -> None:
         assert set(phonemes) <= declared
     assert set(PUNCTUATION_MAP.values()) <= declared
     assert {ACCENT_RISE, ACCENT_FALL, ACCENT_PHRASE_BOUNDARY, PAUSE_SYMBOL} <= declared
+
+
+def test_a_missing_language_dependency_fails_before_any_data_is_touched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preparation validates the frontend first; a missing extra must stop it there.
+
+    Loading Open JTalk lazily would let preparation start and fail part-way
+    through a corpus instead.
+    """
+    from inflect_finetune import frontend as frontend_module
+    from inflect_finetune.frontends.ja_openjtalk import create_frontend
+
+    monkeypatch.setitem(sys.modules, "pyopenjtalk", None)
+    # validate_frontend reuses an already-constructed frontend, which would hide
+    # the failure in a session where another test built it successfully.
+    monkeypatch.setattr(frontend_module, "_CUSTOM_FRONTENDS", {})
+
+    with pytest.raises(RuntimeError, match="requires Open JTalk"):
+        create_frontend(language="ja")
+    with pytest.raises(frontend_module.FrontendError, match="requires Open JTalk"):
+        frontend_module.validate_frontend(resolve("ja-openjtalk", "ja"))
+
+
+def test_symbol_tables_are_readable_without_the_language_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mapping must be inspectable so its coverage stays checked in CI."""
+    monkeypatch.setitem(sys.modules, "pyopenjtalk", None)
+    module = importlib.reload(
+        importlib.import_module("inflect_finetune.frontends.ja_openjtalk")
+    )
+    assert module.DECLARED_SYMBOLS
+    assert set(module.PHONE_TO_IPA)
