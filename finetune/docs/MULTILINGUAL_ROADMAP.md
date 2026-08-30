@@ -425,9 +425,22 @@ print(G2p()("국물 좀 드세요. 신라면 맛있어요."))   # 궁물 좀 드
 
 ### 6.4 첫 작업 순서
 
-1. G0 통과 확인
-2. C1~C5 (M1) — 코드 변경은 여기서 시작한다
-3. G1을 **일본어 화자 검수까지** 통과시킨 뒤 M2로
+브랜치: `feat/multilingual-frontend-registry` (커밋 `9caa240`, `c4a7744`).
+
+```bash
+git fetch origin && git checkout feat/multilingual-frontend-registry
+cd finetune && python -m pip install -e ".[onnx,dev]" && python -m pip install ".[ja]"
+pytest
+```
+
+1. **G0** — CUDA torch·VRAM 확인, `M:` 마운트, `pytest` 전체 통과,
+   릴리스 `config.json`의 `mel_fmin`/`mel_fmax`/`filter_length`/`hop_length` 기록.
+2. **G1(c) 마감** — 화자 검수. 커버리지 스위트 덤프는 이미 있고(실패 0), 남은 것은
+   **실제 전사 무작위 표본**에 대한 같은 덤프와 오독률 기록이다.
+3. **M2** — 매니페스트(`group_id` = source file), 클리핑 정책, stage-1/stage-2 분리.
+
+M1은 코드가 끝났으므로 CUDA 머신에서 프론트엔드를 건드릴 일은 없다. 다음 코드 작업은
+M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 수 있다(§3 M3).
 
 ---
 
