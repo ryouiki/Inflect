@@ -28,6 +28,11 @@ onnx = [
   "onnx>=1.16,<2",
   "onnxruntime>=1.18,<2",
 ]
+# Japanese frontend. pyopenjtalk-plus publishes prebuilt wheels; the upstream
+# pyopenjtalk project does not for every supported interpreter.
+ja = [
+  "pyopenjtalk-plus>=0.4,<0.5",
+]
 
 [project.scripts]
 inflect-adapt = "inflect_finetune.cli:main"

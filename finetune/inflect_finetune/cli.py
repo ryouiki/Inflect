@@ -40,6 +40,9 @@ def _optional_step(value: str) -> int | None:
 
 
 def _add_prepare(subparsers: Any) -> None:
+    from .frontends import REGISTRY, registry_names
+
+    bundled = registry_names()
     parser = subparsers.add_parser(
         "prepare",
         help="Validate and prepare user-owned speech data.",
@@ -53,9 +56,13 @@ def _add_prepare(subparsers: Any) -> None:
     parser.add_argument("--language", default="en-us")
     parser.add_argument(
         "--frontend",
-        choices=("espeak", "prephonemized", "custom"),
+        choices=("espeak", "prephonemized", "custom") + bundled,
         default="espeak",
-        help="Use eSpeak NG, manifest phonemes, or an explicit custom frontend hook.",
+        help=(
+            "Use eSpeak NG, manifest phonemes, an explicit custom frontend hook, "
+            "or a bundled language frontend. Bundled: "
+            + "; ".join(f"{name} ({REGISTRY[name].summary})" for name in bundled)
+        ),
     )
     parser.add_argument(
         "--frontend-hook",
@@ -86,6 +93,15 @@ def _add_audit(subparsers: Any) -> None:
         help="Treat all structural warnings selected by the auditor as fatal.",
     )
     parser.add_argument("--duration-tolerance-seconds", type=float, default=0.02)
+    parser.add_argument(
+        "--require-no-new-symbols",
+        action="store_true",
+        help=(
+            "Fail when the prepared inventory extends the released symbol "
+            "inventory. A checkpoint that keeps the released inventory can be "
+            "reused as the base of a later adaptation run."
+        ),
+    )
     parser.set_defaults(handler=_run_audit)
 
 
@@ -268,6 +284,7 @@ def _run_audit(args: argparse.Namespace) -> dict[str, Any]:
             prepared_dir=args.dataset,
             strict=args.strict,
             duration_tolerance_seconds=args.duration_tolerance_seconds,
+            require_no_new_symbols=args.require_no_new_symbols,
         )
     )
 
@@ -325,6 +342,42 @@ def _run_evaluate(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _prepared_dataset_json(args: argparse.Namespace) -> Path | None:
+    """Return the prepared dataset.json named directly or by a sibling symbols file."""
+    candidates: list[Path] = []
+    if args.prepared_dataset is not None:
+        prepared = Path(args.prepared_dataset).expanduser()
+        candidates.append(prepared / "dataset.json" if prepared.is_dir() else prepared)
+    if args.symbols is not None:
+        candidates.append(Path(args.symbols).expanduser().parent / "dataset.json")
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _resolved_frontend_hook(args: argparse.Namespace) -> Path | None:
+    """Recover the hook file for a dataset prepared with a bundled frontend.
+
+    Export needs the exact custom frontend source. When the dataset was prepared
+    through the registry the file ships with the toolkit, so it is resolved here
+    instead of asked for. An unreadable dataset falls through to export's own
+    error, which names what is missing.
+    """
+    if args.frontend_hook is not None:
+        return args.frontend_hook
+    dataset_json = _prepared_dataset_json(args)
+    if dataset_json is None:
+        return None
+    from .frontends import hook_path_for_record
+
+    try:
+        payload = json.loads(dataset_json.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    frontend = payload.get("frontend") if isinstance(payload, dict) else None
+    if not isinstance(frontend, dict):
+        return None
+    return hook_path_for_record(frontend.get("registry"))
+
+
 def _run_export(args: argparse.Namespace) -> dict[str, Any]:
     from .exporting import ExportOptions, export_checkpoint
 
@@ -335,7 +388,7 @@ def _run_export(args: argparse.Namespace) -> dict[str, Any]:
             config=args.config,
             symbols=args.symbols,
             prepared_dataset=args.prepared_dataset,
-            frontend_hook=args.frontend_hook,
+            frontend_hook=_resolved_frontend_hook(args),
             package_template=args.package_template,
             include_onnx=args.format == "onnx",
             onnx_opset=args.onnx_opset,

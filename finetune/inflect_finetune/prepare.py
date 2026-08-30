@@ -13,12 +13,12 @@ from typing import Any, Sequence
 
 from .audio import AudioOptions, convert_wav
 from .frontend import (
-    FrontendOptions,
     custom_frontend_metadata,
     custom_frontend_symbols,
     process_text,
     validate_frontend,
 )
+from .frontends import is_registry_frontend, registry_names, registry_record, resolve
 from .manifest import ManifestRow, parse_manifest
 from .symbols import (
     BASE_SYMBOLS,
@@ -52,8 +52,12 @@ class PrepareOptions:
 
     def validate(self) -> None:
         """Validate preparation settings before any output is written."""
-        if self.frontend not in {"espeak", "prephonemized", "custom"}:
-            raise ValueError("frontend must be 'espeak', 'prephonemized', or 'custom'.")
+        bundled = is_registry_frontend(self.frontend)
+        if not bundled and self.frontend not in {"espeak", "prephonemized", "custom"}:
+            raise ValueError(
+                "frontend must be 'espeak', 'prephonemized', 'custom', or a bundled "
+                "language frontend: " + ", ".join(registry_names()) + "."
+            )
         if not 0 < self.validation_fraction < 1:
             raise ValueError("validation_fraction must be in the interval (0, 1).")
         if self.frontend == "custom" and not self.frontend_hook:
@@ -249,9 +253,9 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
             f"Output directory is not empty: {output_dir}. Choose a new directory."
         )
 
-    frontend_options = FrontendOptions(
-        mode=options.frontend,
-        language=options.language,
+    frontend_options = resolve(
+        options.frontend,
+        options.language,
         hook=options.frontend_hook,
     )
     validate_frontend(frontend_options)
@@ -349,12 +353,17 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
         _write_jsonl(stage / "validation.jsonl", validation_rows)
         write_symbol_inventory(stage / "symbols.json", inventory)
 
-        frontend_metadata = {
-            "type": options.frontend,
+        # A bundled frontend is recorded as the custom frontend it resolves to,
+        # so export and the deployment runtime keep their existing contract. The
+        # registry name is preserved beside it for reproducibility.
+        frontend_metadata: dict[str, Any] = {
+            "type": frontend_options.mode,
             "language": options.language,
             "preserve_punctuation": frontend_options.preserve_punctuation,
             "with_stress": frontend_options.with_stress,
         }
+        if is_registry_frontend(options.frontend):
+            frontend_metadata["registry"] = registry_record(options.frontend)
         custom_metadata = custom_frontend_metadata(frontend_options)
         if custom_metadata is not None:
             frontend_metadata["hook"] = custom_metadata

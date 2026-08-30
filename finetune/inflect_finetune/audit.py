@@ -27,6 +27,7 @@ class AuditOptions:
     prepared_dir: Path
     strict: bool = True
     duration_tolerance_seconds: float = 0.02
+    require_no_new_symbols: bool = False
 
     def validate(self) -> None:
         """Validate audit settings."""
@@ -237,6 +238,19 @@ def audit_dataset(options: AuditOptions) -> dict[str, Any]:
             + ", ".join(repr(symbol) for symbol in coverage.unknown_counts)
         )
 
+    added_symbols = symbols_payload.get("added_symbols")
+    if not isinstance(added_symbols, list):
+        added_symbols = []
+    if options.require_no_new_symbols and added_symbols:
+        # New rows are trainable, but they also change the symbol count, and a
+        # checkpoint whose inventory is no longer the release inventory cannot
+        # be reused as the base of a later adaptation run.
+        errors.append(
+            "The prepared inventory adds symbols to the released inventory while "
+            "--require-no-new-symbols is set: "
+            + ", ".join(repr(symbol) for symbol in added_symbols)
+        )
+
     for normalized_key, splits in normalized_text_splits.items():
         if len(splits) > 1:
             locations = ", ".join(normalized_text_locations[normalized_key])
@@ -317,6 +331,8 @@ def audit_dataset(options: AuditOptions) -> dict[str, Any]:
         "normalized_text_keys": len(normalized_text_splits),
         "total_duration_seconds": round(total_duration, 6),
         "symbol_coverage": coverage.to_dict() if coverage else None,
+        "added_symbols": list(added_symbols),
+        "required_no_new_symbols": options.require_no_new_symbols,
         "errors": errors,
         "warnings": warnings,
     }

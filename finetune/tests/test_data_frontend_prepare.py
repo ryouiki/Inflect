@@ -311,3 +311,111 @@ def test_audit_treats_empty_validation_as_error(tmp_path: Path) -> None:
     report = audit_dataset(AuditOptions(prepared_dir=output, strict=False))
     assert not report["valid"]
     assert any("no validation rows" in error for error in report["errors"])
+
+
+def _extending_hook_source() -> str:
+    """A frontend that emits a symbol outside the released inventory."""
+    return """
+class Frontend:
+    def __init__(self, language):
+        self.language = language
+
+    def normalize(self, text):
+        return " ".join(text.split())
+
+    def phonemize(self, normalized_text):
+        return "a\\uA71Cb"
+
+    def symbols(self):
+        return ["a", "b", "\\uA71C"]
+
+    def metadata(self):
+        return {
+            "name": "extending-frontend",
+            "version": "1",
+            "language": self.language,
+            "configuration": {},
+        }
+
+def create_frontend(*, language):
+    return Frontend(language)
+""".lstrip()
+
+
+def _japanese_source(root: Path, texts: list[str]) -> Path:
+    root.mkdir(parents=True)
+    rows: list[dict[str, str]] = []
+    for index, text in enumerate(texts):
+        audio_name = f"ja-{index}.wav"
+        _write_wav(root / audio_name, 210.0 + index * 41.0)
+        rows.append({"audio": audio_name, "text": text, "speaker": "voice-ja"})
+    return _write_manifest(root, rows)
+
+
+def test_bundled_japanese_frontend_prepares_without_new_symbols(tmp_path: Path) -> None:
+    pytest.importorskip(
+        "pyopenjtalk",
+        reason="The Japanese frontend needs the 'ja' extra (pyopenjtalk-plus).",
+    )
+    manifest = _japanese_source(
+        tmp_path / "source",
+        [
+            "こんにちは、今日はいい天気ですね。",
+            "彼女は2026年8月30日に来ます。",
+            "よろしくお願いします。",
+            "本当に美味しいお茶でした。",
+        ],
+    )
+    output = tmp_path / "prepared"
+    metadata = _prepare(
+        manifest,
+        output,
+        language="ja",
+        frontend="ja-openjtalk",
+    )
+
+    # The bundled frontend resolves to the custom contract export understands,
+    # while the registry name stays recorded for reproducibility.
+    assert metadata["frontend"]["type"] == "custom"
+    assert metadata["frontend"]["registry"]["name"] == "ja-openjtalk"
+    assert metadata["frontend"]["registry"]["language"] == "ja"
+    assert metadata["frontend"]["hook"]["declared_metadata"]["name"] == "ja-openjtalk"
+    assert metadata["diagnostics"]["added_symbol_count"] == 0
+    assert metadata["diagnostics"]["base_symbol_coverage_fraction"] == 1.0
+
+    inventory = json.loads((output / "symbols.json").read_text(encoding="utf-8"))
+    assert inventory["added_symbols"] == []
+    assert inventory["total_size"] == inventory["base_size"]
+
+    report = audit_dataset(
+        AuditOptions(prepared_dir=output, require_no_new_symbols=True)
+    )
+    assert report["valid"]
+    assert report["added_symbols"] == []
+    assert report["required_no_new_symbols"] is True
+
+
+def test_audit_can_require_that_the_released_inventory_is_not_extended(
+    tmp_path: Path,
+) -> None:
+    manifest = _source_dataset(tmp_path / "source", count=3)
+    hook_path = tmp_path / "extending_frontend.py"
+    hook_path.write_text(_extending_hook_source(), encoding="utf-8")
+    output = tmp_path / "prepared"
+    metadata = _prepare(
+        manifest,
+        output,
+        frontend="custom",
+        frontend_hook=f"{hook_path}:create_frontend",
+    )
+    assert metadata["diagnostics"]["added_symbol_count"] == 1
+
+    permissive = audit_dataset(AuditOptions(prepared_dir=output))
+    assert permissive["valid"]
+    assert permissive["added_symbols"] == ["ꜜ"]
+
+    strict = audit_dataset(
+        AuditOptions(prepared_dir=output, strict=False, require_no_new_symbols=True)
+    )
+    assert not strict["valid"]
+    assert any("adds symbols" in error for error in strict["errors"])

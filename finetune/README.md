@@ -88,8 +88,25 @@ and deterministic nonempty train/validation splits. Do not train until audit
 passes and a fluent speaker has inspected representative normalized text and
 phonemes.
 
-If eSpeak is unsuitable, use prephonemized rows or the documented
-[custom frontend hook](docs/CUSTOM_G2P.md).
+Some languages ship a bundled frontend instead. Japanese needs one, because
+eSpeak cannot read kanji:
+
+```bash
+python -m pip install ".[ja]"
+
+inflect-adapt prepare \
+  --manifest data/metadata.jsonl \
+  --audio-root data/audio \
+  --language ja \
+  --frontend ja-openjtalk \
+  --output prepared/ja
+
+inflect-adapt audit --dataset prepared/ja --require-no-new-symbols
+```
+
+If neither eSpeak nor a bundled frontend is suitable, use prephonemized rows or
+the documented [custom frontend hook](docs/CUSTOM_G2P.md). See
+[languages and symbols](docs/LANGUAGES.md) for the bundled list.
 
 ## 3. Train
 
@@ -209,6 +226,7 @@ fluent-speaker review.
 - [Custom G2P/frontend hooks](docs/CUSTOM_G2P.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Consent and responsible use](docs/RESPONSIBLE_USE.md)
+- [Multilingual extension roadmap (planned work)](docs/MULTILINGUAL_ROADMAP.md)
 
 ## Release gate
 
