@@ -2,8 +2,9 @@
 
 ## Warm-start behavior
 
-The released `model.pth` is an inference generator, not a training snapshot.
-The trainer:
+`--base` accepts a released Micro or Nano checkpoint, or a checkpoint this
+toolkit produced earlier. Either way it is an inference generator, not a
+training snapshot. The trainer:
 
 1. builds the compatible training form of Micro or Nano;
 2. copies all compatible released generator weights;
@@ -14,6 +15,42 @@ The trainer:
 7. records hashes for the base model, prepared data, symbols, and options.
 
 This begins a new adaptation run. It does not continue the private release run.
+
+## Chaining two runs
+
+Moving language and voice at the same time asks every part of a small generator
+to move at once. Splitting the work is one way to reduce that:
+
+```bash
+# 1. a language base from a multi-speaker corpus
+inflect-adapt train --base owensong/Inflect-Micro-v2 \
+  --dataset prepared/ja-base --output runs/ja-base
+inflect-adapt export --checkpoint runs/ja-base/checkpoints/adaptation-final.pth \
+  --prepared-dataset prepared/ja-base \
+  --package-template <released Micro directory> \
+  --format pytorch --output exports/ja-base
+
+# 2. the target voice, warm-started from it
+inflect-adapt train --base exports/ja-base \
+  --dataset prepared/ja-voice --output runs/ja-voice
+```
+
+A base checkpoint may use a larger symbol inventory than the release, as long
+as it keeps the released symbols at their released positions. Embedding rows
+are matched by symbol string, so:
+
+- symbols present in both are copied, wherever they sit in either inventory;
+- symbols only the new dataset uses are initialized;
+- symbols only the base had are dropped.
+
+That last case is correct — the new dataset does not use them — but it discards
+weights the earlier run trained. `compatibility-report.json` records
+`base_symbol_count` and `discarded_base_symbols` so it is visible. If you did
+not expect a symbol to be dropped, prepare the second dataset with
+`--base-symbols exports/ja-base/symbols.json` so both inventories agree.
+
+Resume is a different thing and still refuses a changed base: chaining starts a
+new run, with a new output directory and a new run identity.
 
 ## Stages
 

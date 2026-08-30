@@ -3,7 +3,7 @@
 **대상**: `finetune/` adaptation toolkit
 **범위**: 일본어(1차) → 한국어(2차)를 **일회성 커스텀 훅이 아니라 툴킷의 기능**으로 지원
 **작성일**: 2026-08-30 (최종 갱신 2026-08-30)
-**상태**: M1·M5 코드 완료(화자 검수 대기). M0·M2 이후는 CUDA 머신에서 진행.
+**상태**: M1·M5·C6 코드 완료(화자 검수 완료). M0·M2 이후는 CUDA 머신에서 진행.
 
 이 문서는 [CONTRACT.md](../CONTRACT.md)의 공개 계약과 [SCOPE.md](SCOPE.md)의 지원 범위를
 전제로 한다. 두 문서와 충돌하는 항목은 이 로드맵이 아니라 그쪽이 우선한다.
@@ -43,7 +43,7 @@
 | V6 | ~~`g2pkk` + espeak `ko` 조합~~ → **폐기(2026-08-30).** 음운 규칙은 전달되지만 espeak가 후두 대립을 지운다(V4). **대체: `g2pkk` → 발음 한글 → 자모 직접 매핑.** 최소대립쌍 13/13 보존, base 밖 문자 0개, espeak 의존성 제거 | 실행 | 한국어 2단 구조(음운→자모) 확정 |
 | V7 | **pyopenjtalk가 supertonic이 어휘사전으로 고쳐야 했던 항목을 그냥 맞게 읽는다.** `抗うつ剤`→コーウツザイ, `対策`→タイサク, `痛み止め薬`→イタミドメヤク, `2026年8月30日`→ニセンニジューロクネンハチガツサンジューニチ | 실행 | supertonic의 `jf-surgical-v1~v6` 아크는 이식 대상이 아님(§5.1) |
 | V8 | **2단계 체이닝이 현재 코드로 동작한다.** `export`가 `config.json`+`model.pth`+`runtime/`을 쓰고 `resolve_base_model()`이 로컬 디렉터리를 받는다 | `exporting.export_checkpoint()`, `modeling.resolve_base_model()` | 언어 베이스 → 화자 적응 가능 |
-| V9 | **단, 심볼 수가 정확히 178이 아니면 체이닝이 깨진다.** `load_runtime_components()`가 `len(symbols) != 178`에서 `RuntimeError` | `modeling.load_runtime_components()` | V1/V2 덕분에 오늘은 문제없지만 **단일 실패점**(§2.2) |
+| V9 | ~~심볼 수가 정확히 178이 아니면 체이닝이 깨진다~~ → **해소(2026-08-30, C6).** `load_runtime_components()`가 이제 `>= 178` + 릴리스 접두 일치를 본다 | `modeling.validate_release_compatible_symbols()` | 단일 실패점 제거. JA/KO는 애초에 178이라 체이닝은 이전에도 동작했다 |
 | V10 | **다화자 준비가 하드 블록이다.** speaker 값이 2개 이상이면 `prepare`/`audit`이 즉시 실패 | `prepare_dataset()` · `audit_dataset()`의 speaker 가드 | 언어 베이스 단계에 우회 필요 |
 
 ### 확인하지 못한 것
@@ -101,15 +101,19 @@ CLI 변화:
 V1/V2로 JA·KO 모두 신규 심볼 0개가 가능하다. 이걸 **우연이 아니라 계약**으로 만든다.
 
 1. `audit`에 `--require-no-new-symbols` 추가. 프론트엔드 수정이 조용히 심볼을 늘리는
-   회귀를 잡는다.
-2. `modeling.load_runtime_components()`의 `!= 178` 검사를 **`>= 178` + base prefix 일치**로 완화한다.
-   지금은 신규 심볼이 하나라도 생기면 그 체크포인트를 다음 단계의 `--base`로 못 쓴다.
-   완화 후에도 `modeling.load_symbols()`의 prefix 검증이 정체성을 지킨다.
+   회귀를 잡는다. **(M1에서 완료)**
+2. `modeling.load_runtime_components()`의 `!= 178` 검사를 **`>= 178` + base prefix 일치**로
+   완화한다. **(C6에서 완료)** 준비 데이터셋과 런타임 인벤토리가 이제 같은 규칙
+   (`validate_release_compatible_symbols()`)을 쓴다.
 
 이 두 개는 서로를 보완한다. (1)은 "심볼을 늘리지 마라", (2)는 "늘려야만 하는 언어가
-나왔을 때 막다른 길이 아니게 하라"이다. (1)은 M1에서 구현됐다. (2)는 M3에 남아 있고,
-그때까지는 신규 심볼을 쓰는 선택지가 닫혀 있다 — 일본어 악센트를 base의 `↑`/`↓`로
-확정한 이유다(§5.1 D1).
+나왔을 때 막다른 길이 아니게 하라"이다.
+
+**C6가 무엇을 풀었고 무엇을 안 풀었는지**(2026-08-30): JA·KO 둘 다 신규 심볼이 0개라
+**체이닝은 C6 이전에도 동작했다**(178 == 178). C6가 없앤 것은 잠재 실패 지점이고,
+같이 메운 것이 더 크다 — `warm_start_from_release()`와 `load_runtime_components()`에
+테스트가 하나도 없었고, CONTRACT.md가 최소 게이트로 요구하는 "embedding migration by
+symbol identity"가 미검증이었다. 일본어 악센트는 `↑`/`↓` 그대로 두었다(D1 불변).
 
 ### 2.3 F3 — 2단계 학습 (language-base → voice)
 
@@ -266,7 +270,7 @@ held-out 합성이 일본어로 들린다(정체성·품질 불문).
 | C4 | `ja_openjtalk.py` | `frontends/ja_openjtalk.py` | M1 | ✅ 완료. pyopenjtalk-plus |
 | C5 | `--require-no-new-symbols` | `audit.py`, `cli.py` | M1 | ✅ 완료 |
 | C5b | export의 동봉 훅 자동 해석 | `cli.py` | M1 | ✅ 완료. 없으면 JA 경로가 end-to-end로 닫히지 않는다 |
-| C6 | 178 → `>=178 + prefix` 완화 | `modeling.load_runtime_components()` | M3 | **체이닝 단일 실패점** |
+| C6 | 178 → `>=178 + prefix` 완화 | `modeling.validate_release_compatible_symbols()` | M3 | ✅ 완료. 마이그레이션 테스트 공백도 같이 메움 |
 | C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | 기본 동작 불변 |
 | C8 | F0 진단 추가 | `evaluation._signal_metrics()` | M4 | |
 | C9 | ASR/CER 플러그인 (JA/KO) | `examples/` | M4 | 자동 다운로드 금지 유지 |
@@ -497,3 +501,4 @@ M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 �
 | 2026-08-30 | 최초 작성. V1~V10 실측 기준선 확립. |
 | 2026-08-30 | M1 코드 완료. C2 삭제(레지스트리가 custom으로 해석), C5b 추가, D1 결정(`↑`/`↓`), D2 등재, 장음 정책 명시. G1은 화자 검수 대기. |
 | 2026-08-30 | M5 코드 완료, **G5 통과**(파이프라인 파일 0줄). V4·V6 정정 — espeak `ko`가 후두 대립을 붕괴시켜 체인에서 제외하고 자모 직접 매핑으로 대체. K1-D1 등재. |
+| 2026-08-30 | C6 완료. V9 해소. 인벤토리 검증을 준비 데이터셋·런타임이 공유하고, 미검증이던 임베딩 마이그레이션 경로에 테스트를 넣었다. 버려지는 base 심볼을 `compatibility-report.json`에 보고. |

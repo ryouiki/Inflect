@@ -79,6 +79,8 @@ def _report() -> CompatibilityReport:
         exact_tensor_count=1,
         migrated_embedding_rows=0,
         initialized_embedding_rows=0,
+        base_symbol_count=178,
+        discarded_base_symbols=(),
         fresh_tensor_count=0,
         fresh_parameter_count=0,
         fresh_prefixes=("enc_q.",),

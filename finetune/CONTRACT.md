@@ -58,7 +58,10 @@ symbol inventory and its relationship to the base inventory.
 
 Checkpoint migration copies all shape-compatible generator weights. Text
 embedding rows are copied by symbol string, not by numeric index. Newly added
-symbols receive deterministic initialization. Training-only discriminators,
+symbols receive deterministic initialization. A base checkpoint may carry a
+larger inventory than the release as long as the released symbols keep their
+released positions; rows it holds that the new dataset does not use are dropped
+and reported. Training-only discriminators,
 optimizers, and schedulers are initialized from public generic defaults.
 
 ## Safety boundaries

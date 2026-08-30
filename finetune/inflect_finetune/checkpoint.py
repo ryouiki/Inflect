@@ -37,6 +37,8 @@ class CompatibilityReport:
     exact_tensor_count: int
     migrated_embedding_rows: int
     initialized_embedding_rows: int
+    base_symbol_count: int
+    discarded_base_symbols: tuple[str, ...]
     fresh_tensor_count: int
     fresh_parameter_count: int
     fresh_prefixes: tuple[str, ...]
@@ -216,6 +218,17 @@ def warm_start_from_release(
         exact_tensor_count=len(source) - 1,
         migrated_embedding_rows=copied_rows,
         initialized_embedding_rows=initialized_rows,
+        base_symbol_count=len(base_symbols),
+        # A base whose inventory extends the release one can carry rows the new
+        # dataset does not use. Dropping them is correct, but it must be visible:
+        # those are trained weights the next stage will not inherit.
+        discarded_base_symbols=tuple(
+            sorted(
+                symbol
+                for symbol, occurrence in base_index
+                if (symbol, occurrence) not in target_index
+            )
+        ),
         fresh_tensor_count=len(fresh),
         fresh_parameter_count=fresh_parameters,
         fresh_prefixes=FRESH_PREFIXES,
