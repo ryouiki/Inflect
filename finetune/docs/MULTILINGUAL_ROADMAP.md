@@ -3,7 +3,7 @@
 **대상**: `finetune/` adaptation toolkit
 **범위**: 일본어(1차) → 한국어(2차)를 **일회성 커스텀 훅이 아니라 툴킷의 기능**으로 지원
 **작성일**: 2026-08-30 (최종 갱신 2026-08-30)
-**상태**: M1·M5·C6 코드 완료(화자 검수 완료). M0·M2 이후는 CUDA 머신에서 진행.
+**상태**: M1·M5·C6 코드 완료. 한국어 화자 검수 통과, **일본어 G1(c)는 실제 전사 표본 검수가 남음**. M0·M2 이후는 CUDA 머신에서 진행.
 
 이 문서는 [CONTRACT.md](../CONTRACT.md)의 공개 계약과 [SCOPE.md](SCOPE.md)의 지원 범위를
 전제로 한다. 두 문서와 충돌하는 항목은 이 로드맵이 아니라 그쪽이 우선한다.
@@ -219,7 +219,8 @@ group/텍스트 누출 0, 검증셋 음소가 학습셋에 전부 존재.
 
 ### M3 — F3 다단계 학습 배선 + 일본어 stage 1
 
-- `--corpus-role` 구현, `modeling.py` 178 제약 완화(F2-2)
+- ~~`modeling.py` 178 제약 완화(F2-2)~~ **완료(C6)** — 남은 것은 `--corpus-role`뿐
+- `--corpus-role` 구현 (C7, 미착수. 지금은 다화자 데이터셋 준비가 거부된다)
 - ja-base 학습 (Micro). 디코더 언프리즈는 늦게.
 - export → 그 디렉터리를 `--base`로 재로드하는 **체이닝 스모크**
 
@@ -271,7 +272,7 @@ held-out 합성이 일본어로 들린다(정체성·품질 불문).
 | C5 | `--require-no-new-symbols` | `audit.py`, `cli.py` | M1 | ✅ 완료 |
 | C5b | export의 동봉 훅 자동 해석 | `cli.py` | M1 | ✅ 완료. 없으면 JA 경로가 end-to-end로 닫히지 않는다 |
 | C6 | 178 → `>=178 + prefix` 완화 | `modeling.validate_release_compatible_symbols()` | M3 | ✅ 완료. 마이그레이션 테스트 공백도 같이 메움 |
-| C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | 기본 동작 불변 |
+| C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | 미착수. **M3의 유일한 남은 코드 작업**. 기본 동작 불변 |
 | C8 | F0 진단 추가 | `evaluation._signal_metrics()` | M4 | |
 | C9 | ASR/CER 플러그인 (JA/KO) | `examples/` | M4 | 자동 다운로드 금지 유지 |
 | C10 | 블라인드 A/B 페이지 생성기 | 신규 | M4 | |
@@ -398,9 +399,7 @@ t ts tʲ tɕ d dʲ n ɲ h ç ɸ b bʲ p pʲ m mʲ j ɾ ɾʲ w v`.
 ```bash
 cd ~/github/Inflect/finetune
 python -m venv .venv && source .venv/bin/activate
-python -m pip install -e ".[onnx,dev]"
-python -m pip install --only-binary=:all: pyopenjtalk-plus   # 일본어
-python -m pip install g2pkk                                   # 한국어(M5부터)
+python -m pip install -e ".[onnx,dev,ja,ko]"
 pytest
 ```
 
@@ -419,9 +418,10 @@ wsl.exe -d Ubuntu-24.04 -u root -- bash -lc "mkdir -p /mnt/m && mount -t drvfs M
 경로 목록은 `~/github/supertonic-ja-ft/configs/paths.example.yaml`,
 환경 절차는 같은 저장소 `docs/environment.md`.
 
-### 6.3 기준선 재현 (V1~V7 재확인)
+### 6.3 기준선 재현
 
-M0에서 아래를 실행해 이 문서의 표가 그 머신에서도 참인지 확인한다.
+M0에서 아래를 실행해 이 문서의 표가 그 머신에서도 참인지 확인한다. V4·V6는
+2026-08-30에 정정됐다(espeak `ko` 제외) — 아래 한국어 스니펫은 정정 후 기준이다.
 
 ```python
 # 신규 심볼 0개 확인 (V1, V2)
@@ -442,29 +442,68 @@ print(pyopenjtalk.g2p("抗うつ剤の対策について、痛み止め薬を飲
 ```
 
 ```python
-# 한국어 2단 파이프라인 (V6)
+# 한국어 (V6 정정판: espeak 없이 자모 직접 매핑)
 from g2pkk import G2p
-print(G2p()("국물 좀 드세요. 신라면 맛있어요."))   # 궁물 좀 드세요. 실라면 마시써요.
+print(G2p()("국물 좀 드세요."))   # 궁물 좀 드세요.
 ```
 
-### 6.4 첫 작업 순서
+프론트엔드 자체 확인은 테스트가 대신한다 — `pytest -k "ko_frontend or ja_frontend"`.
 
-브랜치: `feat/multilingual-frontend-registry` (커밋 `9caa240`, `c4a7744`).
+### 6.4 인계 상태와 첫 작업 순서
+
+브랜치 `feat/multilingual-frontend-registry`. 프론트엔드 스택과 마이그레이션 경로는
+끝났고, 남은 GPU-불필요 작업(C7·C8–C10)은 착수하지 않았다 — 학습 대기 시간에 넣을 수
+있도록 남겨둔 것이다.
 
 ```bash
 git fetch origin && git checkout feat/multilingual-frontend-registry
-cd finetune && python -m pip install -e ".[onnx,dev]" && python -m pip install ".[ja]"
-pytest
+cd finetune
+python -m pip install -e ".[onnx,dev,ja,ko]"
+pytest                       # 111 passed, 1 skipped (opt-in 실물 테스트)
 ```
 
-1. **G0** — CUDA torch·VRAM 확인, `M:` 마운트, `pytest` 전체 통과,
-   릴리스 `config.json`의 `mel_fmin`/`mel_fmax`/`filter_length`/`hop_length` 기록.
-2. **G1(c) 마감** — 화자 검수. 커버리지 스위트 덤프는 이미 있고(실패 0), 남은 것은
-   **실제 전사 무작위 표본**에 대한 같은 덤프와 오독률 기록이다.
-3. **M2** — 매니페스트(`group_id` = source file), 클리핑 정책, stage-1/stage-2 분리.
+| 완료 | 내용 |
+|---|---|
+| M1 | 프론트엔드 레지스트리 + `ja-openjtalk` (신규 심볼 0, 피치 악센트 `↑`/`↓`) |
+| M5 | `ko-g2pkk` (신규 심볼 0, 후두 대립 13/13 보존). **G5 통과** — 파이프라인 파일 0줄 |
+| C6 | 확장 인벤토리 베이스 허용 + 미검증이던 임베딩 마이그레이션 테스트 |
 
-M1은 코드가 끝났으므로 CUDA 머신에서 프론트엔드를 건드릴 일은 없다. 다음 코드 작업은
-M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 수 있다(§3 M3).
+| 미완 | 왜 |
+|---|---|
+| G1(c) 일본어 화자 검수 | 커버리지 스위트 207문장은 실패 0. **실제 전사 표본**이 남았다 |
+| C7 `--corpus-role` | GPU 불필요. 다화자 stage-1을 하려면 선행 필요 |
+| C8–C10 평가 스택 | GPU 불필요. 첫 학습 결과를 판정하려면 있어야 한다 |
+| M0·M2 이후 전부 | GPU와 `M:` 데이터 필요 |
+
+**첫 작업 순서**
+
+1. **G0** — `torch.cuda.is_available()`, VRAM, `M:` 마운트, `pytest` 전체 통과.
+   릴리스 `config.json`의 `mel_fmin`/`mel_fmax`/`filter_length`/`hop_length`를 기록한다
+   (고 F0 여성 타깃에서 `mel_fmax`가 §7 R4다).
+2. **체이닝 실증** — 이 머신에서는 릴리스가 없어 스텁으로만 검증했다. 실물로 돌린다:
+
+   ```bash
+   INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -q
+   ```
+
+   실제 Micro의 인벤토리·임베딩을 넓혀 stage-1 export를 모사하고 warm-start까지 확인한다.
+3. **G1(c) 마감** — 실제 전사 무작위 표본에 대해
+   `examples/frontend_review_dump.py`를 돌리고 오독률을 기록한다. 오독 0을 요구하지
+   않는다 — 측정과 기록이 게이트다.
+4. **M2** — 매니페스트(`group_id` = source file), 클리핑 정책, stage-1/stage-2 분리.
+5. C7·C8–C10은 GPU를 쓰지 않으므로 학습 대기 시간에 끼워 넣을 수 있다.
+
+**인계받는 사람이 먼저 알아야 할 것**
+
+- `export`에는 **`--package-template micro`가 필수**다. 학습 체크포인트는 base model을
+  저장하지 않으므로(run identity 해시에 들어가기 때문) 익스포터가 추론할 수 없고,
+  `--verify` 기본값이 true라 없으면 실패한다.
+- **다화자 데이터셋은 아직 준비할 수 없다** (C7 미완). stage-1도 단일 화자여야 한다.
+- **알려진 G2P 한계는 `docs/LANGUAGES.md`에 언어별로 정리돼 있다** — 예를 들어
+  한국어는 `세기`·`층`·`장` 앞 두 자리 수를 자릿수로 읽는다. 새 오독을 만나면
+  프론트엔드를 고치기 전에 먼저 거기를 본다.
+- 자동 지표는 전부 스크린이고 판정자는 청취다(§5.2). 이 저장소의 결함 대부분은
+  테스트가 아니라 **검수 덤프를 눈으로 훑다가** 나왔다.
 
 ---
 
@@ -473,13 +512,13 @@ M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 �
 | ID | 리스크 | 영향 | 완화 |
 |---|---|---|---|
 | R1 | 영어 남성 → 일본어 고 F0 여성 동시 이동이 3.96M/9.36M 용량을 초과 | 치명 | F3 2단계 분리. Micro 우선. Nano는 Micro 검증 후 |
-| R2 | 신규 심볼 발생 시 체이닝 붕괴 | 높음 | C5(탐지) + C6(완화)를 M3까지 완료 |
-| R3 | pyopenjtalk 고유명사 오독 | 중간 | 사용자 사전 슬롯. G1이 오독률을 **측정**하도록 설계 |
+| ~~R2~~ | ~~신규 심볼 발생 시 체이닝 붕괴~~ | — | **해소.** C5(탐지, M1) + C6(완화) 완료 |
+| R3 | pyopenjtalk 고유명사 오독 | 중간 | 사용자 사전 슬롯 구현됨(`INFLECT_JA_LEXICON`). G1(c)가 오독률을 **측정**한다 — 미완 |
 | R4 | `mel_fmax`가 여성 고음을 자르는 값 | 중간 | M0에서 실측 기록. 필요 시 학습 전 결정 |
 | R5 | 청취 판정자가 1인(단일 리스너, 작은 N) | 중간 | supertonic이 동일 한계를 안고 갔다. 라운드 내 대비만 비교하고 MOS로 부르지 않는다 |
 | R6 | anime 계열 클리핑이 고 F0에서 균열로 증폭 | 중간 | M2 클리핑 정책. 교훈 70·71 |
 | R7 | 한국어 단일 화자 데이터 미확보 | 중간 | M6 선행 조건. §8 Q3 |
-| R8 | F1 설계가 한국어에서 안 맞음 | 중간 | **G5가 바로 그 검증이다.** 실패하면 M1 회귀 |
+| ~~R8~~ | ~~F1 설계가 한국어에서 안 맞음~~ | — | **해소.** G5 통과 — `ko_g2pkk.py` 추가 외 파이프라인 파일 0줄 |
 
 ---
 
@@ -490,7 +529,9 @@ M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 �
 | Q1 | 일본어 stage-2 목표 화자를 어느 코퍼스로 할 것인가 (고 F0 여성 단일 화자) | M2 |
 | Q2 | 최종 산출물의 **배포 계획**이 있는가? 있다면 つくよみちゃん "다른 캐릭터" 조항, No.7 비상업 조건, anime CC0 주장 무효가 stage-1 구성을 제약한다 | M2, M6 |
 | Q3 | 한국어 단일 화자 코퍼스를 무엇으로 할 것인가 (신규 녹음 / 라이선스 확보) | M6 |
-| Q4 | D1 — 일본어 피치 악센트를 `↑`/`↓`(178 유지) vs `ꜜ`(C6 선행) 중 무엇으로 | M1 |
+| ~~Q4~~ | ~~D1 — 일본어 피치 악센트 표기~~ | **결정됨: `↑`/`↓`** (§5.1 D1). C6 완료로 `ꜜ`도 가능해졌지만 재개방하지 않음 |
+| Q5 | D2 — 일본어 악센트구 경계를 공백 유지 vs base의 `—`로 분리 (§5.1 D2) | 청취 후 |
+| Q6 | K1-D1 — 한국어 ㅐ/ㅔ 구분 유지 vs 병합 (§5.3) | 청취 후 |
 
 ---
 
@@ -502,3 +543,4 @@ M3의 C6·C7이며, 둘 다 GPU가 필요 없으므로 인계 전에 끝내둘 �
 | 2026-08-30 | M1 코드 완료. C2 삭제(레지스트리가 custom으로 해석), C5b 추가, D1 결정(`↑`/`↓`), D2 등재, 장음 정책 명시. G1은 화자 검수 대기. |
 | 2026-08-30 | M5 코드 완료, **G5 통과**(파이프라인 파일 0줄). V4·V6 정정 — espeak `ko`가 후두 대립을 붕괴시켜 체인에서 제외하고 자모 직접 매핑으로 대체. K1-D1 등재. |
 | 2026-08-30 | C6 완료. V9 해소. 인벤토리 검증을 준비 데이터셋·런타임이 공유하고, 미검증이던 임베딩 마이그레이션 경로에 테스트를 넣었다. 버려지는 base 심볼을 `compatibility-report.json`에 보고. |
+| 2026-08-30 | 인계 리뷰. **문서의 export 예시 5개가 그대로는 실패하던 것을 수정** (`--package-template` 필수). §6.4를 인계 상태 기준으로 재작성. R2·R8 해소, Q4 결정 반영, Q5·Q6 등재. |

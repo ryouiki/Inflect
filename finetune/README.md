@@ -169,6 +169,7 @@ frontend metadata:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format pytorch \
   --output exports/es-micro
 ```
@@ -179,6 +180,7 @@ For ONNX:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format onnx \
   --output exports/es-micro-onnx
 ```
@@ -190,9 +192,15 @@ inflect-adapt export \
   --checkpoint runs/custom/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/custom \
   --frontend-hook my_frontend.py \
+  --package-template micro \
   --format onnx \
   --output exports/custom
 ```
+
+`--package-template` supplies the runtime the package must carry, and a
+verified export requires it: a training checkpoint does not record which base
+model produced it. It resolves like `--base`, so `micro`, `nano`, a Hugging
+Face repository ID, or a local release directory all work.
 
 Export strips posterior, discriminator, optimizer, scheduler, scaler, RNG, and
 other training-only state. It writes `frontend.json`, `symbols.json`,

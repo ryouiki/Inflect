@@ -22,12 +22,12 @@ Moving language and voice at the same time asks every part of a small generator
 to move at once. Splitting the work is one way to reduce that:
 
 ```bash
-# 1. a language base from a multi-speaker corpus
+# 1. a language base
 inflect-adapt train --base owensong/Inflect-Micro-v2 \
   --dataset prepared/ja-base --output runs/ja-base
 inflect-adapt export --checkpoint runs/ja-base/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/ja-base \
-  --package-template <released Micro directory> \
+  --package-template micro \
   --format pytorch --output exports/ja-base
 
 # 2. the target voice, warm-started from it
@@ -51,6 +51,11 @@ not expect a symbol to be dropped, prepare the second dataset with
 
 Resume is a different thing and still refuses a changed base: chaining starts a
 new run, with a new output directory and a new run identity.
+
+Both datasets must still be single-speaker. Preparation rejects a manifest with
+more than one speaker value, so a language base built from a multi-speaker
+corpus is not supported today — the first stage has to be one speaker whose
+recordings you are willing to move away from in the second.
 
 ## Stages
 
@@ -161,6 +166,7 @@ PyTorch:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format pytorch \
   --output exports/es-micro
 ```
@@ -171,9 +177,17 @@ ONNX:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format onnx \
   --output exports/es-micro-onnx
 ```
+
+`--package-template` resolves like `--base` — `micro`, `nano`, a Hugging Face
+repository ID, or a local release directory. The package needs that runtime,
+and the exporter cannot infer it: a training checkpoint deliberately omits its
+base model from the saved options, because those options are hashed into the
+run identity that guards resume. Without it a verified export fails rather than
+writing an unusable package.
 
 The exporter carries the exact language/frontend contract into the package.
 eSpeak packages use the configured language, prephonemized packages require

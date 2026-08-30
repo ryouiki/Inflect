@@ -1611,9 +1611,11 @@ def export_checkpoint(options: ExportOptions) -> dict[str, Any]:
         del training_model
     elif options.verify:
         raise ValueError(
-            "Verified export requires a released package runtime. Pass "
-            "ExportOptions(package_template=...) or export a toolkit training checkpoint "
-            "whose saved options still identify an available base model."
+            "Verified export requires a released package runtime. Pass the released "
+            "directory as ExportOptions(package_template=...), or --package-template "
+            "on the command line. A training checkpoint cannot supply it: its saved "
+            "options omit the base model, because they are hashed into the run "
+            "identity that guards resume."
         )
 
     onnx_report: dict[str, Any] = {"requested": options.include_onnx}
