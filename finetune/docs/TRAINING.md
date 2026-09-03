@@ -211,6 +211,42 @@ Evaluation writes audio, per-item diagnostics, aggregate JSON, and a readable
 summary. Supply `--transcript-evaluator module:callable` to integrate a
 project-specific ASR or metric implementation.
 
+A row that carries an `audio` field is read from disk and no model is loaded,
+which is what makes the prepared `validation.jsonl` the real-audio anchor: the
+same code path measures the recording and the render, so the two numbers are
+comparable. To render instead, pass a copy of those rows with `audio` and
+`phonemes` removed. Passing `validation.jsonl` itself while varying
+`--checkpoint` scores the same recordings every time.
+
+## Blind listening
+
+Automatic diagnostics screen candidates; they do not rank them. Two examples
+build the round that does:
+
+```bash
+python examples/build_blind_ab_page.py \
+  --system step6000=evaluations/es-micro-step6000 \
+  --system step8000=evaluations/es-micro-step8000 \
+  --anchor evaluations/es-micro-val-real-anchor \
+  --must-include-ids review/high-register-ids.txt \
+  --rows 32 --output listening/round1
+
+python examples/tally_verdict.py \
+  --mapping listening/round1/mapping.json \
+  --verdict round1-verdict.json
+```
+
+The page relabels every row with fresh random letters, levels every clip to one
+RMS by pure gain, forces the real-audio anchor onto each row, asks for a
+description rather than a bare number, and requires free text on what the defect
+sounded like. Which letter was which system lives only in `mapping.json`, so
+scoring and tallying are separate steps; a letter tallied directly is noise.
+`--catch-rows` puts one system on a row twice, and the two scores it earns for
+byte-identical audio are that round's noise floor.
+
+Score one round at a time. Absolute scores drift between sessions, so only
+contrasts inside a single page are comparable, and none of this is MOS.
+
 ## Clean-environment test
 
 Before release:
