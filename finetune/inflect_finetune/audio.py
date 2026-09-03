@@ -57,12 +57,20 @@ class AudioDiagnostics:
     source_peak: float
     output_peak: float
     source_clipped_fraction: float
+    output_clipped_fraction: float
     resampled: bool
     downmixed: bool
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
         return asdict(self)
+
+
+# Both are RIFF WAVE. Anything above 16-bit or with a channel mask comes out of
+# sox and ffmpeg as WAVE_FORMAT_EXTENSIBLE, so rejecting it would turn a routine
+# 24-bit conversion into a wall. The check exists to catch a file that is not
+# WAV at all, such as an MP3 renamed .wav, and that check still holds.
+_WAV_CONTAINERS = frozenset({"WAV", "WAVEX"})
 
 
 def inspect_wav(path: Path, options: AudioOptions | None = None) -> sf.SoundFile:
@@ -83,7 +91,7 @@ def inspect_wav(path: Path, options: AudioOptions | None = None) -> sf.SoundFile
         info = sf.info(path)
     except (RuntimeError, TypeError) as exc:
         raise AudioValidationError(f"Could not read WAV metadata for {path}: {exc}") from exc
-    if info.format != "WAV":
+    if info.format not in _WAV_CONTAINERS:
         raise AudioValidationError(
             f"{path} has extension .wav but container format '{info.format}' is not WAV."
         )
@@ -164,6 +172,11 @@ def convert_wav(
     converted = _resample(mono, sample_rate, options.sample_rate)
     if not np.isfinite(converted).all() or converted.size == 0:
         raise AudioValidationError(f"Audio conversion produced invalid samples for {source}.")
+    # Resampling rings above the source peak, so a corpus mastered near full
+    # scale loses samples to the clip below as a matter of course. Measured
+    # before the clip: afterwards it is indistinguishable from material that
+    # simply reached full scale on its own.
+    output_clipped_fraction = float(np.mean(np.abs(converted) > options.peak_limit))
     converted = np.clip(converted, -options.peak_limit, options.peak_limit)
 
     destination = Path(destination)
@@ -193,6 +206,7 @@ def convert_wav(
         source_peak=source_peak,
         output_peak=float(np.max(np.abs(converted), initial=0.0)),
         source_clipped_fraction=source_clipped_fraction,
+        output_clipped_fraction=output_clipped_fraction,
         resampled=sample_rate != options.sample_rate,
         downmixed=info.channels != 1,
     )

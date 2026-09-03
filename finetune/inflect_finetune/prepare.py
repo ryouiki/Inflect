@@ -399,6 +399,14 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
                 "source_clipped_files": sum(
                     item["source_clipped_fraction"] > 0 for item in audio_diagnostics
                 ),
+                # Clipping the conversion introduced, which is not the same
+                # thing as clipping the recordings arrived with: a corpus
+                # mastered near full scale loses samples to the resampler's
+                # overshoot, and lowering the whole corpus by a few dB before
+                # preparing is what removes it.
+                "output_clipped_files": sum(
+                    item["output_clipped_fraction"] > 0 for item in audio_diagnostics
+                ),
                 "base_symbol_coverage_fraction": base_coverage.coverage_fraction,
                 "base_unknown_symbols": base_coverage.unknown_counts,
                 "added_symbol_count": len(inventory.added_symbols),
