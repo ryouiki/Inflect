@@ -19,6 +19,24 @@ PROHIBITED_PATTERNS = {
 }
 
 
+EXCLUDED_DIRECTORIES = {"__pycache__", "build", "dist"}
+
+
+def _is_published_surface(relative: Path) -> bool:
+    """Return whether a file under the toolkit belongs to the public surface.
+
+    A virtual environment, a build tree, or an editable-install artifact lives
+    inside the toolkit without being part of what it publishes, and the
+    documented install creates ``.venv`` in this directory, so those trees are
+    skipped. Site-packages also carries files that are not valid UTF-8, which
+    would fail the read below rather than the assertion.
+    """
+    return not any(
+        part in EXCLUDED_DIRECTORIES or part.startswith(".") or part.endswith(".egg-info")
+        for part in relative.parts[:-1]
+    )
+
+
 def public_text_files() -> list[Path]:
     extensions = {
         ".py",
@@ -36,8 +54,8 @@ def public_text_files() -> list[Path]:
         for path in TOOLKIT_ROOT.rglob("*")
         if path.is_file()
         and path.suffix.lower() in extensions
-        and "__pycache__" not in path.parts
         and path.name != Path(__file__).name
+        and _is_published_surface(path.relative_to(TOOLKIT_ROOT))
     ]
 
 
