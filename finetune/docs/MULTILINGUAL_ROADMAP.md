@@ -319,14 +319,14 @@ held-out 합성이 일본어로 들린다(정체성·품질 불문).
 | C1 | `frontends/` 레지스트리 패키지 | `frontends/__init__.py` | M1 | ✅ 완료. 훅 계약 불변 |
 | ~~C2~~ | ~~`FrontendOptions.mode`에 레지스트리 이름 허용~~ | — | — | **삭제.** 레지스트리가 `mode="custom"`으로 해석하므로 `frontend.py`는 변경 불필요 |
 | C3 | `--frontend` choices 확장 + `prepare` 배선 | `cli.py`, `prepare.py` | M1 | ✅ 완료 |
-| C4 | `ja_openjtalk.py` | `frontends/ja_openjtalk.py` | M1 | ✅ 완료. pyopenjtalk-plus |
+| C4 | `ja_openjtalk.py` | `frontends/ja_openjtalk.py` | M1 | ✅ 완료. pyopenjtalk-plus. 2026-09-04에 `fy`(フュ) 누락을 JSUT 덤프가 잡아 추가 — 음소 인벤토리 전수 테스트로 잠금 |
 | C5 | `--require-no-new-symbols` | `audit.py`, `cli.py` | M1 | ✅ 완료 |
 | C5b | export의 동봉 훅 자동 해석 | `cli.py` | M1 | ✅ 완료. 없으면 JA 경로가 end-to-end로 닫히지 않는다 |
 | C6 | 178 → `>=178 + prefix` 완화 | `modeling.validate_release_compatible_symbols()` | M3 | ✅ 완료. 마이그레이션 테스트 공백도 같이 메움 |
-| C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | 미착수. **M3의 유일한 남은 코드 작업**. 기본 동작 불변 |
-| C8 | F0 진단 추가 | `evaluation._signal_metrics()` | M4 | |
-| C9 | ASR/CER 플러그인 (JA/KO) | `examples/` | M4 | 자동 다운로드 금지 유지 |
-| C10 | 블라인드 A/B 페이지 생성기 | 신규 | M4 | |
+| C7 | `--corpus-role` (다화자 허용) | `prepare_dataset()` · `audit_dataset()` | M3 | **조건부 보류.** §3.0 T3에서만 착수 — stage-1은 단일화자 JSUT로 성립한다. 기본 동작 불변 |
+| C8 | F0 진단 추가 | `evaluation._signal_metrics()` | M4 | ✅ 완료(2026-09-04). median·IQR·유성 프레임 비율. fmax 1000 |
+| C9 | ASR/CER 플러그인 (JA/KO) | `examples/transcript_evaluator_asr.py` | M4 | ✅ 완료(2026-09-04). `INFLECT_ASR_MODEL_DIR` + `local_files_only`, 자동 다운로드 금지 유지 |
+| C10 | 블라인드 A/B 페이지 생성기 | `examples/build_blind_ab_page.py` · `examples/tally_verdict.py` | M4 | ✅ 완료(2026-09-04). 행별 무작위 라벨·봉인 mapping·실물 앵커 강제·catch 행 |
 | C11 | `ko_g2pkk.py` | `frontends/ko_g2pkk.py` | M5 | ✅ 완료. 파이프라인 파일 변경 0 — **G5 통과** |
 | C12 | 배포 런타임 프론트엔드 패키징 | `_write_deployment_runtime()` | M6 | |
 

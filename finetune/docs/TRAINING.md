@@ -209,7 +209,12 @@ inflect-adapt evaluate \
 
 Evaluation writes audio, per-item diagnostics, aggregate JSON, and a readable
 summary. Supply `--transcript-evaluator module:callable` to integrate a
-project-specific ASR or metric implementation.
+project-specific ASR or metric implementation;
+`examples/transcript_evaluator_asr.py` is a working Japanese and Korean one,
+scoring CER on kana and on jamo respectively. It reads its model from
+`INFLECT_ASR_MODEL_DIR` with `local_files_only`, because an ASR model arriving
+by surprise during evaluation is a different measurement than the one you meant
+to make.
 
 The diagnostics include three pitch observables per clip: `f0_median_hz`,
 `f0_iqr_semitones`, and `voiced_frame_fraction`. Read the first two together.
