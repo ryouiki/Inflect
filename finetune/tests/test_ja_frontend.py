@@ -187,3 +187,42 @@ def test_a_decimal_point_does_not_end_a_sentence(
     phonemes = _phonemes(frontend, "終わりました。次へ。")
     assert phonemes.count(".") == 2
     assert _phonemes(frontend, "第1.").endswith(".")
+
+
+def test_loanword_palatalized_f_is_mapped(frontend):
+    """Open JTalk emits `fy` for フュ, and an unmapped phone is a hard failure.
+
+    A loanword corpus reaches this where a native-vocabulary one never does, so
+    the phone is covered here rather than discovered during preparation.
+    """
+    phonemes = frontend.phonemize(frontend.normalize("フュージョン電子音楽"))
+    assert "ɸʲ" in phonemes
+    assert set(phonemes) <= set(frontend.symbols())
+
+
+def test_every_phone_open_jtalk_emits_for_kana_is_mapped(frontend):
+    """The mapping must cover the phone inventory, not just the observed corpus."""
+    import re
+
+    pyopenjtalk = pytest.importorskip("pyopenjtalk")
+    from inflect_finetune.frontends.ja_openjtalk import PHONE_TO_IPA
+
+    phone_pattern = re.compile(r"\-(.+?)\+")
+    probes = (
+        "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン",
+        "ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ",
+        "キャキュキョギャギュギョシャシュショジャジュジョチャチュチョ",
+        "ニャニュニョヒャヒュヒョビャビュビョピャピュピョミャミュミョリャリュリョ",
+        "ファフィフュフェフォヴァヴィヴヴェヴォヴュ",
+        "ティトゥディドゥテュデュツァツィツェツォシェジェチェ",
+        "クァクィクェクォグァグィグェグォウィウェウォスィズィ",
+    )
+    silence = {"sil", "pau", "xx"}
+    observed: set[str] = set()
+    for probe in probes:
+        for label in pyopenjtalk.extract_fullcontext(probe):
+            match = phone_pattern.search(label)
+            if match:
+                observed.add(match.group(1))
+    unmapped = sorted(observed - set(PHONE_TO_IPA) - silence)
+    assert not unmapped, f"Open JTalk emits phones the frontend cannot map: {unmapped}"

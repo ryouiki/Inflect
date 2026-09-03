@@ -67,6 +67,9 @@ PHONE_TO_IPA: dict[str, str] = {
     "d": "d",
     "dy": "dʲ",
     "f": "ɸ",
+    # フュ in a loanword, as in フュージョン. Open JTalk emits it, and it costs no
+    # new symbol: both halves are already here.
+    "fy": "ɸʲ",
     "g": "ɡ",
     "gy": "ɡʲ",
     "gw": "ɡʷ",

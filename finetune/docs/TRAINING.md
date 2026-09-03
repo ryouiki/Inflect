@@ -211,6 +211,16 @@ Evaluation writes audio, per-item diagnostics, aggregate JSON, and a readable
 summary. Supply `--transcript-evaluator module:callable` to integrate a
 project-specific ASR or metric implementation.
 
+The diagnostics include three pitch observables per clip: `f0_median_hz`,
+`f0_iqr_semitones`, and `voiced_frame_fraction`. Read the first two together.
+A change that only moves the median has a degenerate solution where the contour
+flattens, which measures as success and sounds worse, and the interquartile
+range in semitones is what shows the contour still moving. The search range is
+60 Hz to 1 kHz by default; a ceiling set near a target's own high notes reports
+a falling contour that is an artifact of the setting. A clip with no voiced
+frames reports no pitch rather than a pitch of zero, and the aggregate skips it
+instead of averaging the zero in.
+
 A row that carries an `audio` field is read from disk and no model is loaded,
 which is what makes the prepared `validation.jsonl` the real-audio anchor: the
 same code path measures the recording and the render, so the two numbers are

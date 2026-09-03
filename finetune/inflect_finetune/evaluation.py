@@ -59,6 +59,12 @@ class EvaluationOptions:
     clipping_threshold: float = 0.999
     silence_threshold_db: float = -50.0
     frame_ms: float = 25.0
+    # The pitch search range. The ceiling is deliberately well above a speaking
+    # voice: a target whose questions end near 800 Hz reads as a falling contour
+    # if the ceiling clips it, which is an artifact of the setting rather than
+    # anything the model did.
+    f0_min_hz: float = 60.0
+    f0_max_hz: float = 1000.0
 
 
 def _read_manifest(path: Path) -> list[dict[str, Any]]:
@@ -238,6 +244,96 @@ def _leading_trailing_silence(mask: np.ndarray, sample_rate: int) -> tuple[float
     return non_silent[0] / sample_rate, (mask.size - 1 - non_silent[-1]) / sample_rate
 
 
+def _f0_metrics(
+    waveform: np.ndarray,
+    sample_rate: int,
+    *,
+    f0_min_hz: float,
+    f0_max_hz: float,
+    silence_amplitude: float,
+) -> dict[str, Any]:
+    """Return the pitch observables, by normalized autocorrelation.
+
+    Three numbers, and the second is the reason the first is reported at all: a
+    register objective that only moves the median has a degenerate solution
+    where the contour goes flat, which measures as success and sounds worse. The
+    interquartile range in semitones is what shows the contour still moving, so
+    the two are always read together.
+
+    The estimator is deliberately plain — autocorrelation over Hann-windowed
+    frames, sub-sample refinement, and a bias toward the shortest candidate
+    period so a doubled lag cannot halve the reported pitch. It is a screen for
+    register collapse and pitch flattening, not a pitch tracker.
+    """
+    if not 0 < f0_min_hz < f0_max_hz:
+        raise ValueError("f0_min_hz must be positive and below f0_max_hz.")
+    # Three periods of the lowest pitch, so the lowest lag still has support.
+    frame_length = min(waveform.size, math.ceil(3.0 * sample_rate / f0_min_hz))
+    hop_length = max(1, round(sample_rate * 0.010))
+    min_lag = max(2, math.floor(sample_rate / f0_max_hz))
+    max_lag = math.ceil(sample_rate / f0_min_hz)
+    if frame_length <= max_lag or waveform.size < frame_length:
+        return {"f0_median_hz": None, "f0_iqr_semitones": None, "voiced_frame_fraction": 0.0}
+
+    window = np.hanning(frame_length)
+    padded = int(1 << (2 * frame_length - 1).bit_length())
+    starts = range(0, waveform.size - frame_length + 1, hop_length)
+    frequencies: list[float] = []
+    frames = 0
+    for start in starts:
+        frames += 1
+        frame = waveform[start : start + frame_length]
+        if float(np.sqrt(np.mean(np.square(frame)))) <= silence_amplitude:
+            continue
+        centred = (frame - float(np.mean(frame))) * window
+        energy = float(np.dot(centred, centred))
+        if energy <= 0:
+            continue
+        spectrum = np.fft.rfft(centred, n=padded)
+        correlation = np.fft.irfft(spectrum * np.conjugate(spectrum), n=padded)[: max_lag + 1]
+        normalized = correlation / energy
+        search = normalized[min_lag : max_lag + 1]
+        if search.size == 0:
+            continue
+        best = float(np.max(search))
+        # A periodic frame correlates with itself; an unvoiced one does not.
+        if best < 0.45:
+            continue
+        # The shortest lag that is nearly as strong as the best one. Picking the
+        # global maximum alone reports half the pitch whenever a multiple of the
+        # period correlates marginally better.
+        candidates = np.flatnonzero(search >= 0.85 * best)
+        offset = int(candidates[0]) if candidates.size else int(np.argmax(search))
+        lag = min_lag + offset
+        if 0 < lag < max_lag:
+            previous, current, following = (
+                float(normalized[lag - 1]),
+                float(normalized[lag]),
+                float(normalized[lag + 1]),
+            )
+            denominator = previous - 2.0 * current + following
+            if denominator != 0:
+                lag += 0.5 * (previous - following) / denominator
+        if lag > 0:
+            frequency = sample_rate / lag
+            if f0_min_hz <= frequency <= f0_max_hz:
+                frequencies.append(frequency)
+
+    if not frequencies:
+        return {
+            "f0_median_hz": None,
+            "f0_iqr_semitones": None,
+            "voiced_frame_fraction": 0.0,
+        }
+    values = np.asarray(frequencies, dtype=np.float64)
+    lower, upper = (float(value) for value in np.percentile(values, [25.0, 75.0]))
+    return {
+        "f0_median_hz": float(np.median(values)),
+        "f0_iqr_semitones": 12.0 * math.log2(upper / lower) if lower > 0 else 0.0,
+        "voiced_frame_fraction": len(frequencies) / frames if frames else 0.0,
+    }
+
+
 def _signal_metrics(
     waveform: np.ndarray,
     sample_rate: int,
@@ -245,6 +341,8 @@ def _signal_metrics(
     clipping_threshold: float,
     silence_threshold_db: float,
     frame_ms: float,
+    f0_min_hz: float = 60.0,
+    f0_max_hz: float = 1000.0,
 ) -> dict[str, Any]:
     if waveform.size == 0:
         raise ValueError("Waveform is empty.")
@@ -298,6 +396,13 @@ def _signal_metrics(
         "crest_factor_db": 20.0 * math.log10(max(peak, 1e-12) / max(rms, 1e-12)),
         "spectral_centroid_hz": centroid,
         "high_frequency_energy_ratio": high_ratio,
+        **_f0_metrics(
+            safe,
+            sample_rate,
+            f0_min_hz=f0_min_hz,
+            f0_max_hz=f0_max_hz,
+            silence_amplitude=silence_amplitude,
+        ),
     }
 
 
@@ -320,16 +425,22 @@ def _aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "crest_factor_db",
         "spectral_centroid_hz",
         "high_frequency_energy_ratio",
+        "f0_median_hz",
+        "f0_iqr_semitones",
+        "voiced_frame_fraction",
         "characters_per_second",
         "words_per_second",
     )
     result: dict[str, Any] = {}
     for name in metric_names:
-        values = [
-            float(row["signal"][name] if name in row["signal"] else row[name])
+        # A metric can be genuinely unmeasurable for a row — an unvoiced clip has
+        # no pitch — so a missing value is skipped rather than counted as zero.
+        raw = [
+            row["signal"][name] if name in row.get("signal", {}) else row.get(name)
             for row in rows
             if name in row.get("signal", {}) or name in row
         ]
+        values = [float(value) for value in raw if value is not None]
         result[name] = {
             "mean": float(np.mean(values)) if values else None,
             "p50": _percentile(values, 50),
@@ -434,6 +545,8 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
                 clipping_threshold=options.clipping_threshold,
                 silence_threshold_db=options.silence_threshold_db,
                 frame_ms=options.frame_ms,
+                f0_min_hz=options.f0_min_hz,
+                f0_max_hz=options.f0_max_hz,
             )
             duration = metrics["duration_seconds"]
             scoring_text = text or phonemes or ""
@@ -498,6 +611,8 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
             "clipping_threshold": options.clipping_threshold,
             "silence_threshold_db": options.silence_threshold_db,
             "frame_ms": options.frame_ms,
+            "f0_min_hz": options.f0_min_hz,
+            "f0_max_hz": options.f0_max_hz,
             "transcript_evaluator_enabled": transcript_evaluator is not None,
         },
         counts={"requested": len(rows), "evaluated": len(evaluated), "failed": len(failures)},
