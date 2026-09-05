@@ -1009,18 +1009,35 @@ from text import cleaned_text_to_sequence
 from text.symbols import symbols
 
 
+# A sentence boundary, with two things that are not one. A run of marks stays
+# with the sentence it ends, so an ellipsis does not become chunks of bare
+# dots. And a point or colon between two digits belongs to the number: without
+# that guard "1.5 seconds" is spoken as "one." then "five seconds", because the
+# frontend that would read 1.5 correctly runs per chunk, after this split. The
+# terminators still end a sentence when a digit follows, which is why the guard
+# is narrow rather than a blanket "not before a digit".
+_SENTENCE_BOUNDARY = re.compile(
+    r"(?<=[.!?;:。！？；：])(?![.!?;:。！？；：])(?!(?<=[0-9][.:])[0-9])\s*"
+)
+_DIGIT_GROUPED_COMMA = re.compile(r"(?<=[0-9])[,，](?=[0-9])")
+
+
 def split_text(text: str, limit: int = 280) -> list[str]:
     normalized = " ".join(text.split())
     sentences = [
-        part.strip()
-        for part in re.split(r"(?<=[.!?;:。！？；：])\s*", normalized)
-        if part.strip()
+        part.strip() for part in _SENTENCE_BOUNDARY.split(normalized) if part.strip()
     ]
     chunks: list[str] = []
     for sentence in sentences or [normalized]:
         while len(sentence) > limit:
             search = sentence[: limit + 1]
-            punctuation = max(search.rfind(mark) for mark in (",", ";", ":", "，", "；", "："))
+            grouped = {match.start() for match in _DIGIT_GROUPED_COMMA.finditer(search)}
+            candidates = [
+                index
+                for index, character in enumerate(search)
+                if character in (",", ";", ":", "，", "；", "：") and index not in grouped
+            ]
+            punctuation = max(candidates) if candidates else -1
             split_at = (
                 punctuation + 1
                 if punctuation >= limit // 2
