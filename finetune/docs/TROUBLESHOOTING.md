@@ -207,6 +207,13 @@ comb, tracked at 93.75 Hz on 34 and 39 of 40 sentences, while every render
 scored as speech tracks near the speaker's own 360 Hz. Pitch lock is not
 necessary for a render to fail, but nothing that locked has passed.
 
+Two more sentences, the highest-pitched one and the one with the most silence,
+gave the same picture on every track, so it is not a property of one sentence.
+On the high one the step-500 inference was even scored "intelligible with
+awkward stretches": the released prior already reads these Korean phonemes as
+understandable Korean in a foreign voice, and the first thousand steps of
+adaptation take that away.
+
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
 artifact unchanged and raises the latent drift, because that term had been
