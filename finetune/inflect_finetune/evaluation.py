@@ -520,6 +520,8 @@ def _aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "f0_iqr_semitones",
         "voiced_frame_fraction",
         "grid_tone_excess_db",
+        "grid_tone_level_db",
+        "off_grid_level_db",
         "fold_periodic_db",
         "fold_periodic_excess_db",
         "f0_grid_deviation_hz",

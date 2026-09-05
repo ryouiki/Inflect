@@ -330,7 +330,8 @@ comes from the model config unless `--hop-length` says otherwise.
 
 | Observable | What it is |
 | --- | --- |
-| `grid_tone_excess_db` | On-grid power over off-grid power above 2 kHz, in dB. Zero by construction for real speech. |
+| `grid_tone_excess_db` | On-grid power over off-grid power above 2 kHz, in dB. Zero by construction for real speech. Use it to detect the artifact, not to compare two renders: see the warning below. |
+| `grid_tone_level_db`, `off_grid_level_db` | The same two band powers against the clip's own signal power. These are what to compare across renders. |
 | `fold_periodic_excess_db` | The clip folded into hop-length frames, relative to the floor an uncorrelated signal would give. `fold_periodic_db` is the same measure without that correction and moves with clip length. |
 | `steady_tone_artifact_score` | Summed prominence of spectral peaks that are both steady across frames and above 1200 Hz. |
 | `f0_grid_deviation_hz` | Distance from the measured pitch to the nearest small multiple of the grid. A tracker fed a ringing render reports the comb as the voice. |
@@ -350,14 +351,28 @@ populations, so it corroborates rather than accuses. The aggregate reports
 `clips_grid_tone_flagged`, `clips_fold_periodic_flagged`,
 `clips_steady_tone_flagged` and `clips_f0_locked_to_frame_grid`.
 
-Two cautions. A pitch that happens to sit on the grid raises the grid-tone
-excess legitimately: a static 250 Hz tone scores +7.19 dB because every third
+Three cautions, and the third cost a wrong conclusion before it was found.
+
+A pitch that happens to sit on the grid raises the grid-tone excess
+legitimately: a static 250 Hz tone scores +7.19 dB because every third
 harmonic lands on 750 Hz. Real speech pitch moves, so this did not appear in
 the recordings above, and it is why the pitch deviation is reported next to the
-excess rather than the excess alone. And these thresholds come from one speaker
-pair on one render channel, so a clip sitting just inside one has proven
-nothing. A screen that cannot measure a clip reports nothing and raises no
-flag, rather than treating silence as innocence.
+excess rather than the excess alone.
+
+These thresholds come from one speaker pair on one render channel, so a clip
+sitting just inside one has proven nothing. A screen that cannot measure a clip
+reports nothing and raises no flag, rather than treating silence as innocence.
+
+**The grid-tone excess is a ratio, and its denominator is the render's own
+broadband floor.** That makes it a good detector and an unsafe comparator. Two
+runs were compared where one had both a quieter comb and a much quieter noise
+floor; because the floor fell faster than the comb, the excess rose and the
+screen ranked the better render worse, on 37 of 40 sentences. Compare
+`grid_tone_level_db` across renders instead, and read the excess for whether
+the artifact is present at all. The level is the weaker detector of the two,
+which is why both are reported: real recordings measure -52.3 dB of comb
+against a rejected run's -46.6, and those distributions touch, while the ratio
+separates the same two sets completely.
 
 ## Ringing at multiples of the frame rate
 

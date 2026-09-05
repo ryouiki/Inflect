@@ -81,6 +81,10 @@ def grid_comb_metrics(
 ) -> dict[str, float | None]:
     """Measure how much of a clip sits on the decoder's frame grid.
 
+    ``grid_tone_level_db`` and ``off_grid_level_db`` report those two band
+    powers against the clip's own signal power, which is what to compare when
+    two renders differ in level or in noise floor.
+
     ``grid_tone_excess_db`` compares mean power in bins within
     ``grid_tolerance_hz`` of a grid multiple against every other bin in the
     band: it is 0 dB by construction for real speech and +6..+9 dB for the
@@ -106,6 +110,8 @@ def grid_comb_metrics(
     metrics: dict[str, float | None] = {
         "frame_grid_hz": grid_hz,
         "grid_tone_excess_db": None,
+        "grid_tone_level_db": None,
+        "off_grid_level_db": None,
         "fold_periodic_db": None,
         "fold_periodic_excess_db": None,
         "fold_periodic_frames": frames,
@@ -133,6 +139,19 @@ def grid_comb_metrics(
         if on_grid.any() and not on_grid.all():
             metrics["grid_tone_excess_db"] = _power_db(
                 float(band_psd[on_grid].mean()), float(band_psd[~on_grid].mean())
+            )
+            # The excess is a ratio, and its denominator is the render's own
+            # broadband floor. That makes it a good detector and a bad
+            # comparator: two renders whose floors differ can be ranked
+            # backwards by it, which happened on a real pair here. These two
+            # report the same two band powers against the clip's own level
+            # instead, so a caller comparing renders can see which term moved.
+            signal_power = float(np.mean(samples**2))
+            metrics["grid_tone_level_db"] = _power_db(
+                float(band_psd[on_grid].mean()), signal_power
+            )
+            metrics["off_grid_level_db"] = _power_db(
+                float(band_psd[~on_grid].mean()), signal_power
             )
 
     if frames >= _MIN_FOLD_FRAMES:

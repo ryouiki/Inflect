@@ -567,3 +567,49 @@ def test_the_summary_discloses_the_source(tmp_path: Path) -> None:
     summary = (tmp_path / "out-anchor" / "evaluation_summary.txt").read_text(encoding="utf-8")
     assert "Source: existing_audio" in summary
     assert "read from manifest audio 1" in summary
+
+
+def test_the_band_levels_separate_a_quieter_comb_from_a_quieter_noise_floor() -> None:
+    """The excess is a ratio, so its denominator moves with the noise floor.
+
+    Two renders can be ranked backwards by it. Cutting the broadband floor
+    while leaving the comb alone raises the excess, which reads as a worse
+    render. That happened on a real pair of runs, where the arm with the
+    quieter comb scored worse on the excess in 37 of 40 sentences. The two
+    band levels are reported next to it for anyone comparing renders rather
+    than detecting the artifact.
+
+    The two bands are driven separately here, by tones placed on and off the
+    grid, because white noise lands in both and scaling it moves neither
+    ratio nor level.
+    """
+
+    seconds = 2.0
+    time = np.arange(int(seconds * SAMPLE_RATE), dtype=np.float64) / SAMPLE_RATE
+    grid_hz = SAMPLE_RATE / HOP_LENGTH
+    on_grid = sum(np.sin(2 * np.pi * grid_hz * k * time) for k in range(32, 96, 8))
+    # Halfway between grid lines, so none of these land in an on-grid bin.
+    off_grid = sum(
+        np.sin(2 * np.pi * grid_hz * (k + 0.5) * time) for k in range(32, 96, 2)
+    )
+    carrier = voiced(seconds=seconds, aspiration_db=-40.0)
+
+    loud = measure(carrier + 0.02 * on_grid + 0.02 * off_grid)
+    quiet = measure(carrier + 0.02 * on_grid + 0.002 * off_grid)
+
+    # Same comb, quieter floor. The excess climbs by more than 5 dB while the
+    # comb level moves about 1 dB, and only because dropping the off-grid
+    # tones also lowers the clip power the level is taken against.
+    ratio_shift = quiet["grid_tone_excess_db"] - loud["grid_tone_excess_db"]
+    level_shift = abs(quiet["grid_tone_level_db"] - loud["grid_tone_level_db"])
+    assert ratio_shift > 5.0
+    assert level_shift < 2.0
+    assert ratio_shift > 3.0 * level_shift
+    assert quiet["off_grid_level_db"] < loud["off_grid_level_db"] - 5.0
+
+
+def test_the_band_levels_are_none_when_the_excess_is() -> None:
+    short = measure(comb(HOP_LENGTH, seconds=0.05))
+    assert short["grid_tone_excess_db"] is None
+    assert short["grid_tone_level_db"] is None
+    assert short["off_grid_level_db"] is None
