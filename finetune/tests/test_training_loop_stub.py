@@ -738,3 +738,173 @@ def test_a_checkpoint_predating_the_new_options_is_rejected_before_the_model_mov
         )
     after = generator.state_dict()
     assert all(torch.equal(before[key], after[key]) for key in before)
+
+
+# A checkpoint written exactly where the schedule changes stage is the case the
+# resume path used to get wrong: the group the new stage enables was saved at
+# zero while it was inactive, and nothing in the loop would ever raise it. The
+# decoder case is the worst one, because `decoder_polish` is terminal and there
+# is no later transition to recover from.
+BOUNDARY_SCHEDULE = {
+    "max_steps": 4,
+    "checkpoint_interval": 1,
+    "validation_interval": 1_000,
+    "log_interval": 1_000,
+}
+
+
+def rates_after_resuming_at(
+    corpus: Corpus, root: Path, boundary: int, **schedule: object
+) -> tuple[list[dict], list[dict]]:
+    """Return (uninterrupted rows, rows produced after resuming at `boundary`).
+
+    Both runs use the same options, so any difference is the resume path alone.
+    """
+
+    settings = {**BOUNDARY_SCHEDULE, **schedule}
+    plain = root / f"plain-{boundary}"
+    train_adaptation(make_options(corpus, plain, **settings))
+
+    resumed = root / f"resumed-{boundary}"
+    train_adaptation(make_options(corpus, resumed, **settings))
+    written = len(metric_rows(resumed))
+    checkpoint = resumed / "checkpoints" / f"adaptation-step-{boundary:08d}.pth"
+    train_adaptation(make_options(corpus, resumed, resume=checkpoint, **settings))
+    return metric_rows(plain), metric_rows(resumed)[written:]
+
+
+def test_resuming_at_the_decoder_unfreeze_step_restores_the_decoder_rate(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """The terminal stage has no later transition, so a zero here is permanent.
+
+    Before the fix the decoder trained at rate zero for the whole polish stage
+    while the run reported that it had polished.
+    """
+
+    plain, resumed = rates_after_resuming_at(
+        corpus, tmp_path, 2, posterior_warmup_steps=1, decoder_unfreeze_step=2
+    )
+    expected = {row["step"]: row["lr"]["decoder"] for row in plain}
+    assert resumed
+    for row in resumed:
+        assert row["stage"] == STAGE_DECODER
+        assert row["lr"]["decoder"] > 0.0
+        assert row["lr"]["decoder"] == pytest.approx(expected[row["step"]], abs=1e-18)
+
+
+def test_resuming_at_the_posterior_boundary_restores_the_linguistic_rate(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    plain, resumed = rates_after_resuming_at(
+        corpus, tmp_path, 1, posterior_warmup_steps=1, decoder_unfreeze_step=2
+    )
+    expected = {row["step"]: row["lr"]["linguistic"] for row in plain}
+    assert resumed
+    for row in resumed:
+        assert row["lr"]["linguistic"] > 0.0
+        assert row["lr"]["linguistic"] == pytest.approx(expected[row["step"]], abs=1e-18)
+
+
+def test_resuming_where_both_boundaries_coincide_restores_both_rates(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """One ablation ran with the warm-up and the unfreeze on the same step.
+
+    That configuration strands two groups at once, so it is worth its own case.
+    """
+
+    plain, resumed = rates_after_resuming_at(
+        corpus, tmp_path, 1, posterior_warmup_steps=1, decoder_unfreeze_step=1
+    )
+    assert resumed
+    for group in ("linguistic", "decoder"):
+        expected = {row["step"]: row["lr"][group] for row in plain}
+        for row in resumed:
+            assert row["lr"][group] > 0.0
+            assert row["lr"][group] == pytest.approx(expected[row["step"]], abs=1e-18)
+
+
+def test_resuming_again_from_a_boundary_checkpoint_still_restores_the_rate(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """A resume that lands on a boundary and then saves records the entered stage.
+
+    Resuming from such a checkpoint sees a saved stage equal to the stage the
+    options derive, so comparing those two would report no boundary and skip
+    the reset. Comparing the entered stage against the previous one has no such
+    hole. The checkpoint is built here by relabelling a real boundary
+    checkpoint, which is exactly the state that sequence produces.
+    """
+
+    settings = {**BOUNDARY_SCHEDULE, "posterior_warmup_steps": 1, "decoder_unfreeze_step": 2}
+    output_dir = tmp_path / "twice"
+    train_adaptation(make_options(corpus, output_dir, **settings))
+    boundary = output_dir / "checkpoints" / "adaptation-step-00000002.pth"
+    assert load_payload(boundary)["stage"] == STAGE_ADAPT
+
+    payload = load_payload(boundary)
+    payload["stage"] = STAGE_DECODER
+    relabelled = output_dir / "checkpoints" / "boundary-relabelled.pth"
+    torch.save(payload, relabelled)
+
+    written = len(metric_rows(output_dir))
+    train_adaptation(make_options(corpus, output_dir, resume=relabelled, **settings))
+    again = metric_rows(output_dir)[written:]
+    assert again
+    assert all(row["stage"] == STAGE_DECODER for row in again)
+    assert all(row["lr"]["decoder"] > 0.0 for row in again)
+
+
+def test_a_mid_stage_resume_keeps_the_decayed_rate(corpus: Corpus, tmp_path: Path) -> None:
+    """Off a boundary the decay is part of the run and must survive the resume.
+
+    This is the property the two runs that were actually resumed relied on.
+    """
+
+    settings = {
+        "max_steps": 6,
+        "checkpoint_interval": 1,
+        "validation_interval": 1_000,
+        "log_interval": 1_000,
+        "posterior_warmup_steps": 1,
+        "decoder_unfreeze_step": 2,
+    }
+    output_dir = tmp_path / "mid"
+    train_adaptation(make_options(corpus, output_dir, **settings))
+    rows = {row["step"]: row for row in metric_rows(output_dir)}
+    checkpoint = output_dir / "checkpoints" / "adaptation-step-00000004.pth"
+
+    written = len(metric_rows(output_dir))
+    train_adaptation(make_options(corpus, output_dir, resume=checkpoint, **settings))
+    after = metric_rows(output_dir)[written:]
+    assert after
+    # A reset would put the rate back at nominal, above the decayed value.
+    nominal = 8.0e-5 * 0.1
+    for row in after:
+        assert row["lr"]["decoder"] < nominal
+        assert row["lr"]["decoder"] == pytest.approx(rows[row["step"]]["lr"]["decoder"], abs=1e-18)
+
+
+def test_validation_does_not_perturb_the_training_stream(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """Validation seeds the global generator, which training draws from too.
+
+    Without the fork, how often validation ran became part of the trajectory,
+    so a run could not be compared against one that only validated at a
+    different interval.
+    """
+
+    settings = {"max_steps": 4, "checkpoint_interval": 1_000, "log_interval": 1_000}
+    often = metric_rows_from(corpus, tmp_path / "often", validation_interval=1, **settings)
+    never = metric_rows_from(corpus, tmp_path / "never", validation_interval=1_000, **settings)
+    assert [row["step"] for row in often] == [row["step"] for row in never]
+    for left, right in zip(often, never):
+        for key in ("loss_g", "loss_d", "loss_mel", "loss_kl", "loss_duration"):
+            assert left[key] == right[key], f"step {left['step']} diverged on {key}"
+
+
+def metric_rows_from(corpus: Corpus, output_dir: Path, **overrides: object) -> list[dict]:
+    train_adaptation(make_options(corpus, output_dir, **overrides))
+    return metric_rows(output_dir)

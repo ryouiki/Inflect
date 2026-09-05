@@ -930,8 +930,16 @@ def _validate(
     model.eval()
     batch = next(iter(loader))
     x, x_lengths = batch[0].to(device), batch[1].to(device)
-    torch.manual_seed(seed)
-    output = model.infer(x[:1], x_lengths[:1], noise_scale=0.667, max_len=4000)[0]
+    # Seeding here is what makes the validation clip comparable across steps,
+    # but the seed lands on the global generator that training is drawing from.
+    # Without the fork, how many times validation has run becomes part of the
+    # training trajectory, so `validation_interval` silently changes the run
+    # and two runs that differ only in that setting are not comparable.
+    # `manual_seed` covers every CUDA device, so the fork has to as well.
+    devices = list(range(torch.cuda.device_count())) if device.type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        output = model.infer(x[:1], x_lengths[:1], noise_scale=0.667, max_len=4000)[0]
     waveform = output[0, 0].float().cpu().numpy()
     sample_rate = int(bundle.config["data"]["sampling_rate"])
     sample_path = output_dir / "validation" / f"step-{step:08d}.wav"
@@ -1051,12 +1059,21 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         # checkpoint lands exactly on a stage boundary, resume must configure
         # the model for the next step rather than reject the valid checkpoint.
         state = TrainingState(step=step, epoch=epoch, stage=expected_stage)
+        # A resume in the middle of a stage keeps the decayed rates the
+        # checkpoint carries, because the decay is part of the run. A resume
+        # that lands on a boundary has to do what an uninterrupted run does at
+        # that step and reset them: the group the new stage enables was saved
+        # at zero while it was inactive, and nothing else would ever raise it,
+        # so the decoder could silently spend a whole polish stage frozen.
+        # The comparison is options-derived rather than against the saved
+        # stage, because a boundary checkpoint records the stage it is entering
+        # and a second resume from it would then miss the boundary.
         _apply_stage(
             bundle.generator,
             optimizer_g,
             options,
             state.stage,
-            reset_learning_rates=False,
+            reset_learning_rates=expected_stage != previous_stage,
         )
 
     audio = AudioConfig(
