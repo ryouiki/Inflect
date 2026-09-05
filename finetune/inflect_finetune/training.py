@@ -6,9 +6,10 @@ import json
 import logging
 import random
 import uuid
+from contextlib import contextmanager
 from dataclasses import MISSING, asdict, dataclass, fields, replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import soundfile as sf
@@ -20,6 +21,7 @@ from .checkpoint import (
     CompatibilityReport,
     build_run_identity,
     cpu_compatibility_report,
+    load_posterior_sidecar,
     load_run_identity,
     resume_training_checkpoint,
     save_inference_checkpoint,
@@ -27,6 +29,7 @@ from .checkpoint import (
     validate_run_identity,
     write_run_identity,
 )
+from .grid_screens import grid_comb_metrics
 from .modeling import (
     ModelBundle,
     build_training_models,
@@ -43,6 +46,14 @@ STAGE_POSTERIOR = "posterior_warmup"
 STAGE_ADAPT = "linguistic_adaptation"
 STAGE_DECODER = "decoder_polish"
 STAGES = (STAGE_POSTERIOR, STAGE_ADAPT, STAGE_DECODER)
+DECODER_POLISH_MODES = ("adversarial", "recon")
+POSTERIOR_INITS = ("fresh", "inherit")
+FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
+# Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
+# model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
+# resolve a comb at multiples of the frame rate that an 80-band mel averages
+# away; 512 keeps a short window for transients.
+STFT_RESOLUTIONS = ((512, 128), (1024, 256), (2048, 512))
 
 
 @dataclass(frozen=True)
@@ -85,6 +96,20 @@ class TrainingOptions:
     validation_interval: int = 500
     log_interval: int = 25
     validation_seed: int = 7
+    # Every field below defaults to the behaviour of the runs that preceded it,
+    # so a caller that sets none of them gets the same loss and the same
+    # schedule. They exist because those runs produced a steady comb at
+    # multiples of the frame rate; docs/TROUBLESHOOTING.md explains when to
+    # reach for which.
+    adversarial_gating: bool = False
+    adversarial_ramp_steps: int = 1_000
+    decoder_lr_warmup_steps: int = 0
+    decoder_polish_mode: str = "adversarial"
+    stft_loss_weight: float = 0.0
+    decoder_proximal_weight: float = 0.0
+    decoder_freeze_upsamplers: bool = False
+    posterior_init: str = "fresh"
+    generator_ema_decay: float = 0.0
 
     @classmethod
     def from_preset(
@@ -185,6 +210,39 @@ def _validate_options(options: TrainingOptions) -> None:
     ):
         if float(getattr(options, name)) <= 0:
             raise ValueError(f"{name} must be positive.")
+    for name in ("adversarial_ramp_steps", "decoder_lr_warmup_steps"):
+        if int(getattr(options, name)) < 0:
+            raise ValueError(f"{name} must be non-negative.")
+    for name in ("stft_loss_weight", "decoder_proximal_weight"):
+        if float(getattr(options, name)) < 0:
+            raise ValueError(f"{name} must be non-negative.")
+    if options.decoder_polish_mode not in DECODER_POLISH_MODES:
+        raise ValueError(
+            f"decoder_polish_mode must be one of {list(DECODER_POLISH_MODES)}."
+        )
+    if options.posterior_init not in POSTERIOR_INITS:
+        raise ValueError(f"posterior_init must be one of {list(POSTERIOR_INITS)}.")
+    if not 0.0 <= float(options.generator_ema_decay) < 1.0:
+        raise ValueError("generator_ema_decay must be at least 0 and below 1.")
+    if options.decoder_unfreeze_step is None:
+        # Both settings are anchored to the unfreeze step. Accepting them
+        # against a decoder that never unfreezes would silently do nothing.
+        if options.decoder_polish_mode != "adversarial":
+            raise ValueError(
+                "decoder_polish_mode is only reachable when the decoder unfreezes; "
+                "set decoder_unfreeze_step or leave the mode at 'adversarial'."
+            )
+        if options.decoder_lr_warmup_steps > 0:
+            raise ValueError(
+                "decoder_lr_warmup_steps is measured from decoder_unfreeze_step, "
+                "which is disabled."
+            )
+    if options.adversarial_gating and options.decoder_unfreeze_step is None:
+        LOGGER.warning(
+            "adversarial_gating with no decoder_unfreeze_step trains the "
+            "discriminator without ever using it; the generator never sees an "
+            "adversarial gradient."
+        )
 
 
 def _device(name: str) -> torch.device:
@@ -247,6 +305,22 @@ def _generator_groups(model: nn.Module, options: TrainingOptions) -> list[dict[s
     ]
 
 
+def _enabled_groups(options: TrainingOptions, stage: str) -> set[str]:
+    if stage not in STAGES:
+        raise ValueError(f"Unknown training stage {stage!r}.")
+    if stage == STAGE_DECODER and options.decoder_polish_mode == "recon":
+        # Reconstruction polish asks one question: can the decoder render the
+        # latents it is already given cleanly. Letting the posterior and the
+        # flow keep moving would change those latents at the same time and
+        # answer nothing.
+        return {"decoder"}
+    return {
+        STAGE_POSTERIOR: {"posterior"},
+        STAGE_ADAPT: {"posterior", "linguistic"},
+        STAGE_DECODER: {"posterior", "linguistic", "decoder"},
+    }[stage]
+
+
 def _apply_stage(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -255,13 +329,18 @@ def _apply_stage(
     *,
     reset_learning_rates: bool = True,
 ) -> None:
-    if stage not in STAGES:
-        raise ValueError(f"Unknown training stage {stage!r}.")
-    enabled = {
-        STAGE_POSTERIOR: {"posterior"},
-        STAGE_ADAPT: {"posterior", "linguistic"},
-        STAGE_DECODER: {"posterior", "linguistic", "decoder"},
-    }[stage]
+    enabled = _enabled_groups(options, stage)
+    held: set[int] = set()
+    if options.decoder_freeze_upsamplers:
+        # The transposed convolutions are where the frame grid enters the
+        # waveform. Holding them while the residual stack trains keeps the
+        # optimizer's parameter groups, and so its saved state, the same shape
+        # as a run that does not use the option.
+        held = {
+            id(parameter)
+            for name, parameter in model.named_parameters()
+            if name.startswith(FROZEN_UPSAMPLER_PREFIXES)
+        }
     for group in optimizer.param_groups:
         name = group["name"]
         active = name in enabled
@@ -270,10 +349,81 @@ def _apply_stage(
         elif reset_learning_rates:
             group["lr"] = options.learning_rate_g * float(group["lr_multiplier"])
         for parameter in group["params"]:
-            parameter.requires_grad_(active)
-            if not active:
+            trainable = active and id(parameter) not in held
+            parameter.requires_grad_(trainable)
+            if not trainable:
                 parameter.grad = None
     optimizer.zero_grad(set_to_none=True)
+
+
+def _adversarial_weight(options: TrainingOptions, step: int, stage: str) -> float:
+    """Weight applied to the adversarial and feature-matching terms.
+
+    A fresh discriminator meets a pretrained generator whose decoder is frozen
+    for thousands of steps. Its gradients still reach the posterior encoder and
+    the flow through that frozen decoder, and nothing else constrains where the
+    latents go. Gating holds the term at exactly zero until the decoder can
+    respond, then ramps it so the first real adversarial push is not a step
+    change. The discriminator keeps training throughout: the gated window is
+    its warm-up.
+    """
+
+    if stage == STAGE_DECODER and options.decoder_polish_mode == "recon":
+        return 0.0
+    if not options.adversarial_gating:
+        return 1.0
+    unfreeze = options.decoder_unfreeze_step
+    if unfreeze is None or step < unfreeze:
+        return 0.0
+    if options.adversarial_ramp_steps <= 0:
+        return 1.0
+    return min(1.0, (step - unfreeze) / options.adversarial_ramp_steps)
+
+
+def _decoder_lr_scale(options: TrainingOptions, step: int, stage: str) -> float:
+    """Multiplier easing the decoder in after it unfreezes.
+
+    Adam starts the decoder group with empty moment estimates, so without a
+    warm-up its first update is the largest one it will ever take, on the
+    component whose released weights are the most valuable thing in the run. A
+    scale of zero on the first step is deliberate: the moments fill and the
+    weights do not move.
+    """
+
+    if options.decoder_lr_warmup_steps <= 0 or stage != STAGE_DECODER:
+        return 1.0
+    unfreeze = options.decoder_unfreeze_step
+    if unfreeze is None:
+        return 1.0
+    return min(1.0, (step - unfreeze) / options.decoder_lr_warmup_steps)
+
+
+def _discriminator_active(options: TrainingOptions, stage: str) -> bool:
+    return not (stage == STAGE_DECODER and options.decoder_polish_mode == "recon")
+
+
+@contextmanager
+def _scaled_decoder_lr(optimizer: torch.optim.Optimizer, scale: float):
+    """Apply a warm-up scale for one optimizer step only.
+
+    The scheduler is chainable: it reads the live learning rate and multiplies
+    it. Scaling in place would compound into the decay, and would be written
+    into the checkpoint as if it were the nominal rate. Restoring before the
+    scheduler runs keeps both honest.
+    """
+
+    if scale >= 1.0:
+        yield
+        return
+    groups = [group for group in optimizer.param_groups if group["name"] == "decoder"]
+    saved = [group["lr"] for group in groups]
+    for group in groups:
+        group["lr"] = group["lr"] * scale
+    try:
+        yield
+    finally:
+        for group, learning_rate in zip(groups, saved):
+            group["lr"] = learning_rate
 
 
 def _set_requires_grad(module: nn.Module, enabled: bool) -> None:
@@ -317,6 +467,210 @@ def _kl_loss(
     return torch.sum(value * mask.float()) / torch.sum(mask.float()).clamp_min(1.0)
 
 
+def _multi_resolution_stft_loss(
+    generated: torch.Tensor,
+    real: torch.Tensor,
+    resolutions: Iterable[tuple[int, int]] = STFT_RESOLUTIONS,
+) -> torch.Tensor:
+    """Linear-frequency reconstruction error the mel loss cannot see.
+
+    An 80-band mel averages over bands that are hundreds of hertz wide in the
+    top octaves, so a narrow comb sitting there costs almost nothing under a
+    mel L1. Each resolution contributes spectral convergence plus a
+    log-magnitude L1, and the result is the mean over resolutions, following
+    Parallel WaveGAN. A weight quoted for the summed convention is worth three
+    times as much here.
+
+    Autocast is disabled inside: a half-precision window makes the transform
+    return complex32, and the magnitudes then carry more quantisation than the
+    artifact being measured.
+    """
+
+    with torch.autocast(device_type=generated.device.type, enabled=False):
+        predicted = generated.float()
+        target = real.float()
+        total = predicted.new_zeros(())
+        counted = 0
+        for n_fft, hop in resolutions:
+            if predicted.shape[-1] < n_fft:
+                continue
+            window = torch.hann_window(
+                n_fft, device=predicted.device, dtype=predicted.dtype
+            )
+            magnitudes = [
+                torch.stft(
+                    signal,
+                    n_fft=n_fft,
+                    hop_length=hop,
+                    win_length=n_fft,
+                    window=window,
+                    center=True,
+                    return_complex=True,
+                )
+                .abs()
+                .clamp_min(1.0e-7)
+                for signal in (predicted, target)
+            ]
+            predicted_magnitude, target_magnitude = magnitudes
+            convergence = torch.linalg.norm(
+                target_magnitude - predicted_magnitude
+            ) / torch.linalg.norm(target_magnitude).clamp_min(1.0e-7)
+            magnitude = F.l1_loss(
+                torch.log(predicted_magnitude), torch.log(target_magnitude)
+            )
+            total = total + convergence + magnitude
+            counted += 1
+        if not counted:
+            raise ValueError(
+                "The training segment is shorter than every STFT resolution; "
+                f"segment {predicted.shape[-1]} samples."
+            )
+        return total / counted
+
+
+def _decoder_reference(model: nn.Module) -> dict[str, torch.Tensor]:
+    """Snapshot the decoder as the run received it, for the proximal anchor."""
+
+    return {
+        name: parameter.detach().clone().float()
+        for name, parameter in model.named_parameters()
+        if name.startswith("dec.")
+    }
+
+
+def _proximal_loss(
+    model: nn.Module, reference: Mapping[str, torch.Tensor]
+) -> torch.Tensor:
+    """Relative squared drift of the decoder from its starting weights.
+
+    Normalising each tensor's drift by that tensor's own squared norm is what
+    makes the penalty steer: an unnormalised mean over millions of elements
+    stays near zero even for a drift that ruins the render, so it reads as
+    satisfied while nothing is being held. Frozen parameters are skipped so
+    the term measures only what the optimizer can actually move.
+    """
+
+    total: torch.Tensor | None = None
+    for name, parameter in model.named_parameters():
+        anchor = reference.get(name)
+        if anchor is None or not parameter.requires_grad:
+            continue
+        drift = ((parameter.float() - anchor) ** 2).sum() / (anchor**2).sum().clamp_min(
+            1.0e-12
+        )
+        total = drift if total is None else total + drift
+    if total is None:
+        raise RuntimeError(
+            "The decoder proximal term was requested while no decoder parameter "
+            "is trainable."
+        )
+    return total
+
+
+def _latent_statistics(z: torch.Tensor, mask: torch.Tensor) -> dict[str, float]:
+    """Scale of the latents the decoder is being fed.
+
+    The released decoder was trained on latents whose per-channel time mean has
+    an RMS near 0.74. Adaptations that ring reach 1.4 to 1.5, and handing those
+    latents to the released decoder rings harder than handing them to the
+    adapted one, which is what identified the latents rather than the decoder
+    weights as the defect. Recording it every step makes the drift visible
+    while the run is still cheap to abandon.
+    """
+
+    with torch.no_grad():
+        value = z.float() * mask.float()
+        frames = mask.float().sum(dim=-1).clamp_min(1.0)
+        channel_mean = value.sum(dim=-1) / frames
+        total_frames = mask.float().sum().clamp_min(1.0)
+        return {
+            "z_dc_rms": float(torch.sqrt(torch.mean(channel_mean**2))),
+            "z_rms": float(
+                torch.sqrt(value.pow(2).sum() / (total_frames * value.shape[1]))
+            ),
+        }
+
+
+def _ema_state(model: nn.Module) -> dict[str, torch.Tensor]:
+    return {
+        key: value.detach().clone().float()
+        if value.is_floating_point()
+        else value.detach().clone()
+        for key, value in model.state_dict().items()
+    }
+
+
+def _ema_decay(decay: float, updates: int) -> float:
+    """Ramp the horizon in so the average is not anchored to step zero."""
+
+    return min(decay, (1.0 + updates) / (10.0 + updates))
+
+
+def _ema_update(
+    ema: Mapping[str, torch.Tensor], model: nn.Module, decay: float
+) -> None:
+    with torch.no_grad():
+        for key, value in model.state_dict().items():
+            stored = ema[key]
+            if stored.is_floating_point():
+                stored.mul_(decay).add_(value.detach().float(), alpha=1.0 - decay)
+            else:
+                stored.copy_(value.detach())
+
+
+def _scalar(value: torch.Tensor | None) -> float | None:
+    return None if value is None else float(value.detach().cpu())
+
+
+def _generator_objective(
+    options: TrainingOptions,
+    *,
+    adversarial_weight: float,
+    loss_generator: torch.Tensor | None,
+    loss_feature: torch.Tensor | None,
+    loss_mel: torch.Tensor,
+    loss_duration: torch.Tensor,
+    loss_kl: torch.Tensor,
+    loss_stft: torch.Tensor | None = None,
+    loss_proximal: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Assemble the generator loss.
+
+    The full-weight branch is written out term by term rather than factored,
+    because floating-point addition is not associative: grouping the
+    reconstruction terms would change the result of a default run in the last
+    bits, and the point of the branch is that it does not.
+    """
+
+    if loss_generator is not None and loss_feature is not None and adversarial_weight == 1.0:
+        total = (
+            loss_generator
+            + options.feature_loss_weight * loss_feature
+            + options.mel_loss_weight * loss_mel
+            + options.duration_loss_weight * loss_duration
+            + options.kl_loss_weight * loss_kl
+        )
+    elif loss_generator is not None and loss_feature is not None and adversarial_weight > 0.0:
+        total = (
+            adversarial_weight * loss_generator
+            + (adversarial_weight * options.feature_loss_weight) * loss_feature
+            + options.mel_loss_weight * loss_mel
+            + options.duration_loss_weight * loss_duration
+            + options.kl_loss_weight * loss_kl
+        )
+    else:
+        total = (
+            options.mel_loss_weight * loss_mel
+            + options.duration_loss_weight * loss_duration
+            + options.kl_loss_weight * loss_kl
+        )
+    if loss_stft is not None:
+        total = total + options.stft_loss_weight * loss_stft
+    if loss_proximal is not None:
+        total = total + options.decoder_proximal_weight * loss_proximal
+    return total
+
+
 def _hz_to_mel(value: torch.Tensor) -> torch.Tensor:
     return 2595.0 * torch.log10(1.0 + value / 700.0)
 
@@ -353,17 +707,27 @@ def _mel_filterbank(
 
 
 def _mel_from_spec(spec: torch.Tensor, bundle: ModelBundle) -> torch.Tensor:
+    """Project a linear spectrogram onto the mel scale in full precision.
+
+    Under mixed precision the projection is a half-precision matmul and the
+    logarithm that follows quantises the target the loss is measured against,
+    not just the prediction. Both sides of that comparison run here, so the
+    surrounding cast is switched off for it.
+    """
+
     data = bundle.config["data"]
-    bank = _mel_filterbank(
-        n_fft=int(data["filter_length"]),
-        n_mels=int(data["n_mel_channels"]),
-        sample_rate=int(data["sampling_rate"]),
-        fmin=float(data["mel_fmin"]),
-        fmax=float(data["mel_fmax"]),
-        device=spec.device,
-        dtype=spec.dtype,
-    )
-    return torch.log(torch.matmul(bank, spec).clamp_min(1.0e-5))
+    with torch.autocast(device_type=spec.device.type, enabled=False):
+        value = spec.float()
+        bank = _mel_filterbank(
+            n_fft=int(data["filter_length"]),
+            n_mels=int(data["n_mel_channels"]),
+            sample_rate=int(data["sampling_rate"]),
+            fmin=float(data["mel_fmin"]),
+            fmax=float(data["mel_fmax"]),
+            device=value.device,
+            dtype=value.dtype,
+        )
+        return torch.log(torch.matmul(bank, value).clamp_min(1.0e-5))
 
 
 def _mel_from_waveform(waveform: torch.Tensor, bundle: ModelBundle) -> torch.Tensor:
@@ -372,18 +736,22 @@ def _mel_from_waveform(waveform: torch.Tensor, bundle: ModelBundle) -> torch.Ten
     hop = int(data["hop_length"])
     win = int(data["win_length"])
     padding = (n_fft - hop) // 2
-    padded = F.pad(waveform.unsqueeze(1), (padding, padding), mode="reflect").squeeze(1)
-    window = torch.hann_window(win, device=waveform.device, dtype=waveform.dtype)
-    spectrum = torch.stft(
-        padded,
-        n_fft=n_fft,
-        hop_length=hop,
-        win_length=win,
-        window=window,
-        center=False,
-        return_complex=True,
-    ).abs().clamp_min(1.0e-5)
-    return _mel_from_spec(spectrum, bundle)
+    with torch.autocast(device_type=waveform.device.type, enabled=False):
+        signal = waveform.float()
+        padded = F.pad(signal.unsqueeze(1), (padding, padding), mode="reflect").squeeze(1)
+        # A half-precision window makes this transform return complex32, which
+        # costs more accuracy than the artifacts the loss is meant to charge for.
+        window = torch.hann_window(win, device=padded.device, dtype=padded.dtype)
+        spectrum = torch.stft(
+            padded,
+            n_fft=n_fft,
+            hop_length=hop,
+            win_length=win,
+            window=window,
+            center=False,
+            return_complex=True,
+        ).abs().clamp_min(1.0e-5)
+        return _mel_from_spec(spectrum, bundle)
 
 
 def _autocast(device: torch.device, enabled: bool):
@@ -415,6 +783,9 @@ def _optimizer_schema(options: TrainingOptions) -> dict[str, Any]:
         "generator": {
             **common,
             "base_learning_rate": options.learning_rate_g,
+            # The group list is deliberately fixed. Freezing the upsamplers is
+            # expressed as a gradient mask inside the decoder group, because a
+            # fourth group would change the shape of the saved optimizer state.
             "parameter_groups": [
                 {
                     "name": "posterior",
@@ -429,6 +800,8 @@ def _optimizer_schema(options: TrainingOptions) -> dict[str, Any]:
                     "lr_multiplier": options.decoder_lr_multiplier,
                 },
             ],
+            "decoder_lr_warmup_steps": options.decoder_lr_warmup_steps,
+            "freeze_upsamplers": options.decoder_freeze_upsamplers,
         },
         "discriminator": {
             **common,
@@ -440,6 +813,7 @@ def _optimizer_schema(options: TrainingOptions) -> dict[str, Any]:
         },
         "gradient_accumulation_steps": options.gradient_accumulation_steps,
         "amp_requested": options.amp,
+        "generator_ema_decay": options.generator_ema_decay,
     }
 
 
@@ -485,12 +859,28 @@ def _resume_checkpoint_for_run(output_dir: Path, resume: str | Path) -> Path:
     return checkpoint
 
 
+def _posterior_sidecar_path(options: TrainingOptions, base_root: Path) -> Path | None:
+    """Resolve the posterior to inherit, or nothing when starting fresh."""
+
+    if options.posterior_init != "inherit":
+        return None
+    path = base_root / "posterior.pth"
+    if not path.is_file():
+        raise FileNotFoundError(
+            "posterior_init='inherit' needs a posterior sidecar beside the base "
+            "checkpoint. Export the previous run with --include-posterior to "
+            f"produce one: {path}"
+        )
+    return path
+
+
 def _establish_run_identity(
     *,
     options: TrainingOptions,
     output_dir: Path,
     base_root: Path,
     prepared_dir: Path,
+    posterior_path: Path | None = None,
 ) -> tuple[dict[str, Any], Path | None]:
     marker_path = output_dir / "run-identity.json"
     public_options = _public_options(options)
@@ -504,6 +894,7 @@ def _establish_run_identity(
             prepared_dir=prepared_dir,
             options=public_options,
             optimizer_schema=optimizer_schema,
+            posterior_path=posterior_path,
         )
         write_run_identity(marker_path, identity)
         return identity, None
@@ -520,6 +911,7 @@ def _establish_run_identity(
         prepared_dir=prepared_dir,
         options=public_options,
         optimizer_schema=optimizer_schema,
+        posterior_path=posterior_path,
     )
     validate_run_identity(recorded, expected, source="output directory run marker")
     return expected, checkpoint
@@ -546,12 +938,22 @@ def _validate(
     sample_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(sample_path, np.clip(waveform, -1.0, 1.0), sample_rate)
     model.train()
+    # One clip is a noisy sample, so these are a trend to watch rather than a
+    # gate; the gate is the offline evaluation over a held-out set. They are
+    # here because a comb that appears at the unfreeze step is cheap to see now
+    # and expensive to discover after the run finishes.
+    screens = grid_comb_metrics(
+        waveform.astype(np.float64),
+        sample_rate,
+        hop_length=int(bundle.config["data"]["hop_length"]),
+    )
     return {
         "step": step,
         "sample": str(sample_path),
         "samples": int(waveform.size),
         "seconds": waveform.size / sample_rate,
         "peak": float(np.max(np.abs(waveform))),
+        **screens,
     }
 
 
@@ -566,24 +968,41 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
     prepared_dir = Path(options.prepared_dir).resolve()
     symbols = load_symbols(prepared_dir / "symbols.json")
     base_root = resolve_base_model(options.base_model)
+    posterior_path = _posterior_sidecar_path(options, base_root)
     run_identity, resume_checkpoint = _establish_run_identity(
         options=options,
         output_dir=output_dir,
         base_root=base_root,
         prepared_dir=prepared_dir,
+        posterior_path=posterior_path,
     )
 
     bundle = build_training_models(base_root, symbols, seed=options.seed)
+    posterior_state = (
+        load_posterior_sidecar(posterior_path) if posterior_path is not None else None
+    )
     compatibility = cpu_compatibility_report(
         bundle.generator,
         base_root / "model.pth",
         bundle.base_symbols,
         symbols,
         initialization_seed=options.seed,
+        posterior_state=posterior_state,
     )
     compatibility.write(output_dir / "compatibility-report.json")
     bundle.generator.to(device)
     bundle.discriminator.to(device)
+    # Both snapshots are taken from the warm-started base and before any resume
+    # state is read, so the anchor is the decoder this run began from whether
+    # that is step 0 or step 6000. This is why neither has to be persisted.
+    decoder_reference = (
+        _decoder_reference(bundle.generator)
+        if options.decoder_proximal_weight > 0.0
+        else None
+    )
+    generator_ema = (
+        _ema_state(bundle.generator) if options.generator_ema_decay > 0.0 else None
+    )
 
     generator_groups = _generator_groups(bundle.generator, options)
     optimizer_g = torch.optim.AdamW(
@@ -619,6 +1038,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             scaler=scaler,
             expected_symbols=symbols,
             expected_run_identity=run_identity,
+            generator_ema=generator_ema,
         )
         expected_stage = _stage_for_step(options, step)
         previous_stage = _stage_for_step(options, max(step - 1, 0))
@@ -690,6 +1110,8 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             x, x_lengths, spec, spec_lengths, waveform, _ = (
                 tensor.to(device, non_blocking=device.type == "cuda") for tensor in batch
             )
+            adversarial_weight = _adversarial_weight(options, state.step, state.stage)
+            train_discriminator = _discriminator_active(options, state.stage)
             with _autocast(device, amp_enabled):
                 generated, duration, _, ids_slice, _, z_mask, latent = bundle.generator(
                     x, x_lengths, spec, spec_lengths
@@ -701,18 +1123,26 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     int(bundle.config["train"]["segment_size"]),
                 )
 
-                _set_requires_grad(bundle.discriminator, True)
-                real_scores, generated_scores, _, _ = bundle.discriminator(
-                    real, generated.detach()
-                )
-                loss_d = _discriminator_loss(real_scores, generated_scores)
+                loss_d = None
+                if train_discriminator:
+                    _set_requires_grad(bundle.discriminator, True)
+                    real_scores, generated_scores, _, _ = bundle.discriminator(
+                        real, generated.detach()
+                    )
+                    loss_d = _discriminator_loss(real_scores, generated_scores)
 
-            scaler.scale(loss_d / options.gradient_accumulation_steps).backward()
+            if loss_d is not None:
+                scaler.scale(loss_d / options.gradient_accumulation_steps).backward()
 
             _set_requires_grad(bundle.discriminator, False)
             with _autocast(device, amp_enabled):
-                generated_scores_g = bundle.discriminator(real, generated)
-                _, fake_scores, real_maps, generated_maps = generated_scores_g
+                loss_feature = None
+                loss_generator = None
+                if adversarial_weight > 0.0:
+                    generated_scores_g = bundle.discriminator(real, generated)
+                    _, fake_scores, real_maps, generated_maps = generated_scores_g
+                    loss_feature = _feature_loss(real_maps, generated_maps)
+                    loss_generator = _generator_loss(fake_scores)
                 target_mel = bundle.components.commons.slice_segments(
                     _mel_from_spec(spec, bundle),
                     ids_slice,
@@ -722,14 +1152,27 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                 loss_mel = F.l1_loss(target_mel.float(), generated_mel.float())
                 loss_duration = duration.float().sum()
                 loss_kl = _kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
-                loss_feature = _feature_loss(real_maps, generated_maps)
-                loss_generator = _generator_loss(fake_scores)
-                loss_g = (
-                    loss_generator
-                    + options.feature_loss_weight * loss_feature
-                    + options.mel_loss_weight * loss_mel
-                    + options.duration_loss_weight * loss_duration
-                    + options.kl_loss_weight * loss_kl
+                loss_stft = (
+                    _multi_resolution_stft_loss(generated.squeeze(1), real.squeeze(1))
+                    if options.stft_loss_weight > 0.0
+                    else None
+                )
+                loss_proximal = (
+                    _proximal_loss(bundle.generator, decoder_reference)
+                    if decoder_reference is not None and state.stage == STAGE_DECODER
+                    else None
+                )
+                latent_statistics = _latent_statistics(z, z_mask)
+                loss_g = _generator_objective(
+                    options,
+                    adversarial_weight=adversarial_weight,
+                    loss_generator=loss_generator,
+                    loss_feature=loss_feature,
+                    loss_mel=loss_mel,
+                    loss_duration=loss_duration,
+                    loss_kl=loss_kl,
+                    loss_stft=loss_stft,
+                    loss_proximal=loss_proximal,
                 )
             scaler.scale(loss_g / options.gradient_accumulation_steps).backward()
             _set_requires_grad(bundle.discriminator, True)
@@ -738,7 +1181,8 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             if micro_step % options.gradient_accumulation_steps:
                 continue
             scaler.unscale_(optimizer_g)
-            scaler.unscale_(optimizer_d)
+            if train_discriminator:
+                scaler.unscale_(optimizer_d)
             torch.nn.utils.clip_grad_norm_(
                 [
                     parameter
@@ -748,30 +1192,51 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                 ],
                 options.max_grad_norm,
             )
-            torch.nn.utils.clip_grad_norm_(
-                bundle.discriminator.parameters(), options.max_grad_norm
-            )
-            scaler.step(optimizer_d)
-            scaler.step(optimizer_g)
+            if train_discriminator:
+                torch.nn.utils.clip_grad_norm_(
+                    bundle.discriminator.parameters(), options.max_grad_norm
+                )
+                # Stepping an optimizer the scaler recorded no inf check for is
+                # a hard error, so this has to follow the same condition as the
+                # backward pass above rather than being merely wasteful.
+                scaler.step(optimizer_d)
+            decoder_lr_scale = _decoder_lr_scale(options, state.step, state.stage)
+            with _scaled_decoder_lr(optimizer_g, decoder_lr_scale):
+                scaler.step(optimizer_g)
             scaler.update()
             optimizer_g.zero_grad(set_to_none=True)
             optimizer_d.zero_grad(set_to_none=True)
             scheduler_g.step()
             scheduler_d.step()
             state.step += 1
+            if generator_ema is not None:
+                _ema_update(
+                    generator_ema,
+                    bundle.generator,
+                    _ema_decay(options.generator_ema_decay, state.step),
+                )
 
             metrics = {
                 "step": state.step,
                 "epoch": state.epoch,
                 "stage": state.stage,
                 "loss_g": float(loss_g.detach().cpu()),
-                "loss_d": float(loss_d.detach().cpu()),
+                "loss_d": _scalar(loss_d),
                 "loss_mel": float(loss_mel.detach().cpu()),
                 "loss_duration": float(loss_duration.detach().cpu()),
                 "loss_kl": float(loss_kl.detach().cpu()),
+                # A term the schedule switched off is null rather than zero: a
+                # zero here would read as "measured and negligible".
+                "loss_generator": _scalar(loss_generator),
+                "loss_feature": _scalar(loss_feature),
+                "loss_stft": _scalar(loss_stft),
+                "loss_proximal": _scalar(loss_proximal),
+                "adversarial_weight": adversarial_weight,
+                "decoder_lr_scale": decoder_lr_scale,
                 "lr": {
                     group["name"]: float(group["lr"]) for group in optimizer_g.param_groups
                 },
+                **latent_statistics,
             }
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(metrics, sort_keys=True) + "\n")
@@ -781,7 +1246,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     state.step,
                     state.stage,
                     metrics["loss_g"],
-                    metrics["loss_d"],
+                    float("nan") if metrics["loss_d"] is None else metrics["loss_d"],
                 )
             if state.step % options.validation_interval == 0:
                 validation = _validate(
@@ -817,6 +1282,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     compatibility=compatibility,
                     run_identity=run_identity,
                     latest_path=output_dir / "checkpoints" / "latest.pth",
+                    generator_ema=generator_ema,
                 )
                 save_inference_checkpoint(
                     output_dir / "exports" / f"model-step-{state.step:08d}.pth",
@@ -824,6 +1290,14 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     iteration=state.step,
                     learning_rate=optimizer_g.param_groups[0]["lr"],
                 )
+                if generator_ema is not None:
+                    save_inference_checkpoint(
+                        output_dir / "exports" / f"model-ema-step-{state.step:08d}.pth",
+                        generator=bundle.generator,
+                        iteration=state.step,
+                        learning_rate=optimizer_g.param_groups[0]["lr"],
+                        state=generator_ema,
+                    )
             if state.step >= options.max_steps:
                 break
 
@@ -844,6 +1318,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         compatibility=compatibility,
         run_identity=run_identity,
         latest_path=output_dir / "checkpoints" / "latest.pth",
+        generator_ema=generator_ema,
     )
     final_inference = save_inference_checkpoint(
         output_dir / "exports" / "model.pth",
@@ -851,12 +1326,23 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         iteration=state.step,
         learning_rate=optimizer_g.param_groups[0]["lr"],
     )
+    final_ema = None
+    if generator_ema is not None:
+        final_ema = save_inference_checkpoint(
+            output_dir / "exports" / "model-ema.pth",
+            generator=bundle.generator,
+            iteration=state.step,
+            learning_rate=optimizer_g.param_groups[0]["lr"],
+            state=generator_ema,
+        )
     summary = {
         "step": state.step,
         "epoch": state.epoch,
         "stage": state.stage,
         "training_checkpoint": str(final_training),
         "inference_checkpoint": str(final_inference),
+        "generator_ema_checkpoint": None if final_ema is None else str(final_ema),
+        "posterior_source": compatibility.posterior_source,
         "compatibility_report": compatibility.to_dict(),
         "run_id": run_identity["run_id"],
     }

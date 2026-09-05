@@ -16,6 +16,7 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 
+from .grid_screens import f0_grid_deviation_hz, grid_comb_metrics, steady_tone_artifact_score
 from .reporting import file_record, make_report, status, write_json, write_text
 
 
@@ -65,6 +66,28 @@ class EvaluationOptions:
     # anything the model did.
     f0_min_hz: float = 60.0
     f0_max_hz: float = 1000.0
+    # Screens for a comb at multiples of the frame rate. The grid is derived
+    # from the hop, which is read from the model config when not given here.
+    # The thresholds flag; they never select. A clip sitting just inside one
+    # has proven nothing, and a listener still decides.
+    #
+    # Measured on 40 real recordings against 40 renders from a run a listener
+    # rejected for ringing (p50 / max, then flagged clips at these defaults):
+    #   grid_tone_excess_db         real -0.13 / 3.50   rings 8.15 / 9.77   0/40 vs 40/40
+    #   fold_periodic_excess_db     real -0.16 / 5.19   rings 4.17 / 8.35   0/40 vs 29/40
+    #   steady_tone_artifact_score  real  0.00 / 0.00   rings 29.9 / 66.3   0/40 vs 40/40
+    # The fold measure overlaps, so it corroborates rather than accuses; its
+    # threshold is set where a flag still means something. The other two
+    # separate the two populations completely.
+    hop_length: int | None = None
+    grid_tone_flag_db: float = 4.0
+    fold_periodic_excess_flag_db: float = 6.0
+    f0_grid_lock_tolerance_hz: float = 1.5
+    f0_grid_lock_max_multiple: int = 3
+    # Costs 0.02-0.04 s per clip, cheap enough to leave on for the screen with
+    # the cleanest separation of the three.
+    steady_tone_screen: bool = True
+    steady_tone_flag: float = 5.0
 
 
 def _read_manifest(path: Path) -> list[dict[str, Any]]:
@@ -334,6 +357,54 @@ def _f0_metrics(
     }
 
 
+def _grid_screens(
+    waveform: np.ndarray,
+    sample_rate: int,
+    f0_median_hz: float | None,
+    *,
+    hop_length: int,
+    grid_tone_flag_db: float,
+    fold_periodic_excess_flag_db: float,
+    f0_grid_lock_tolerance_hz: float,
+    f0_grid_lock_max_multiple: int,
+    steady_tone_screen: bool,
+    steady_tone_flag: float,
+) -> dict[str, Any]:
+    """Measure the frame-rate comb and say which thresholds it crosses.
+
+    The boolean keys are always present, and false when a value could not be
+    measured, because the aggregate counts them by direct indexing.
+    """
+
+    screens = dict(
+        grid_comb_metrics(waveform, sample_rate, hop_length=hop_length)
+    )
+    grid_hz = screens["frame_grid_hz"]
+    deviation = f0_grid_deviation_hz(
+        f0_median_hz, grid_hz, max_multiple=f0_grid_lock_max_multiple
+    )
+    score = (
+        steady_tone_artifact_score(waveform, sample_rate) if steady_tone_screen else None
+    )
+    excess = screens["grid_tone_excess_db"]
+    fold_excess = screens["fold_periodic_excess_db"]
+    screens.update(
+        {
+            "f0_grid_deviation_hz": deviation,
+            "steady_tone_artifact_score": score,
+            "grid_tone_flagged": excess is not None and excess > grid_tone_flag_db,
+            "fold_periodic_flagged": (
+                fold_excess is not None and fold_excess > fold_periodic_excess_flag_db
+            ),
+            "f0_grid_locked": (
+                deviation is not None and deviation <= f0_grid_lock_tolerance_hz
+            ),
+            "steady_tone_flagged": score is not None and score > steady_tone_flag,
+        }
+    )
+    return screens
+
+
 def _signal_metrics(
     waveform: np.ndarray,
     sample_rate: int,
@@ -343,6 +414,13 @@ def _signal_metrics(
     frame_ms: float,
     f0_min_hz: float = 60.0,
     f0_max_hz: float = 1000.0,
+    hop_length: int = 256,
+    grid_tone_flag_db: float = 4.0,
+    fold_periodic_excess_flag_db: float = 6.0,
+    f0_grid_lock_tolerance_hz: float = 1.5,
+    f0_grid_lock_max_multiple: int = 3,
+    steady_tone_screen: bool = True,
+    steady_tone_flag: float = 5.0,
 ) -> dict[str, Any]:
     if waveform.size == 0:
         raise ValueError("Waveform is empty.")
@@ -366,6 +444,13 @@ def _signal_metrics(
         float(np.mean(np.signbit(safe[1:]) != np.signbit(safe[:-1])))
         if safe.size > 1
         else 0.0
+    )
+    pitch = _f0_metrics(
+        safe,
+        sample_rate,
+        f0_min_hz=f0_min_hz,
+        f0_max_hz=f0_max_hz,
+        silence_amplitude=silence_amplitude,
     )
     nperseg = min(1024, safe.size)
     frequencies, spectrum = signal.welch(safe, fs=sample_rate, nperseg=nperseg)
@@ -396,12 +481,18 @@ def _signal_metrics(
         "crest_factor_db": 20.0 * math.log10(max(peak, 1e-12) / max(rms, 1e-12)),
         "spectral_centroid_hz": centroid,
         "high_frequency_energy_ratio": high_ratio,
-        **_f0_metrics(
+        **pitch,
+        **_grid_screens(
             safe,
             sample_rate,
-            f0_min_hz=f0_min_hz,
-            f0_max_hz=f0_max_hz,
-            silence_amplitude=silence_amplitude,
+            pitch["f0_median_hz"],
+            hop_length=hop_length,
+            grid_tone_flag_db=grid_tone_flag_db,
+            fold_periodic_excess_flag_db=fold_periodic_excess_flag_db,
+            f0_grid_lock_tolerance_hz=f0_grid_lock_tolerance_hz,
+            f0_grid_lock_max_multiple=f0_grid_lock_max_multiple,
+            steady_tone_screen=steady_tone_screen,
+            steady_tone_flag=steady_tone_flag,
         ),
     }
 
@@ -428,6 +519,11 @@ def _aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "f0_median_hz",
         "f0_iqr_semitones",
         "voiced_frame_fraction",
+        "grid_tone_excess_db",
+        "fold_periodic_db",
+        "fold_periodic_excess_db",
+        "f0_grid_deviation_hz",
+        "steady_tone_artifact_score",
         "characters_per_second",
         "words_per_second",
     )
@@ -456,6 +552,18 @@ def _aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     result["clips_with_non_finite_samples"] = sum(
         not row["signal"]["all_finite"] for row in rows
     )
+    result["clips_grid_tone_flagged"] = sum(
+        row["signal"]["grid_tone_flagged"] for row in rows
+    )
+    result["clips_fold_periodic_flagged"] = sum(
+        row["signal"]["fold_periodic_flagged"] for row in rows
+    )
+    result["clips_f0_locked_to_frame_grid"] = sum(
+        row["signal"]["f0_grid_locked"] for row in rows
+    )
+    result["clips_steady_tone_flagged"] = sum(
+        row["signal"]["steady_tone_flagged"] for row in rows
+    )
     return result
 
 
@@ -471,6 +579,28 @@ def _run_transcript_evaluator(
     if isinstance(result, Mapping):
         return dict(result)
     raise TypeError("Transcript evaluator must return a string or mapping.")
+
+
+def _resolve_hop_length(options: EvaluationOptions, model_dir: Path | None) -> int:
+    """Take the frame hop from the package being evaluated, not from a guess.
+
+    The comb the screens look for sits at multiples of sample rate over hop, so
+    a hop that does not belong to this model would measure the wrong
+    frequencies and quietly report nothing.
+    """
+
+    if options.hop_length is not None:
+        return int(options.hop_length)
+    if model_dir is not None:
+        config_path = model_dir / "config.json"
+        if config_path.is_file():
+            try:
+                payload = json.loads(config_path.read_text(encoding="utf-8"))
+                return int(payload["data"]["hop_length"])
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
+                    ValueError):
+                pass
+    return 256
 
 
 def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
@@ -489,6 +619,7 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
         rows = rows[: options.max_samples]
 
     model_dir = Path(options.model_dir).resolve() if options.model_dir is not None else None
+    hop_length = _resolve_hop_length(options, model_dir)
     checkpoint = (
         Path(options.checkpoint).resolve() if options.checkpoint is not None else None
     )
@@ -547,6 +678,13 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
                 frame_ms=options.frame_ms,
                 f0_min_hz=options.f0_min_hz,
                 f0_max_hz=options.f0_max_hz,
+                hop_length=hop_length,
+                grid_tone_flag_db=options.grid_tone_flag_db,
+                fold_periodic_excess_flag_db=options.fold_periodic_excess_flag_db,
+                f0_grid_lock_tolerance_hz=options.f0_grid_lock_tolerance_hz,
+                f0_grid_lock_max_multiple=options.f0_grid_lock_max_multiple,
+                steady_tone_screen=options.steady_tone_screen,
+                steady_tone_flag=options.steady_tone_flag,
             )
             duration = metrics["duration_seconds"]
             scoring_text = text or phonemes or ""
@@ -613,6 +751,14 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
             "frame_ms": options.frame_ms,
             "f0_min_hz": options.f0_min_hz,
             "f0_max_hz": options.f0_max_hz,
+            "hop_length": hop_length,
+            "frame_grid_hz": None if not evaluated else evaluated[0]["signal"]["frame_grid_hz"],
+            "grid_tone_flag_db": options.grid_tone_flag_db,
+            "fold_periodic_excess_flag_db": options.fold_periodic_excess_flag_db,
+            "f0_grid_lock_tolerance_hz": options.f0_grid_lock_tolerance_hz,
+            "f0_grid_lock_max_multiple": options.f0_grid_lock_max_multiple,
+            "steady_tone_screen": options.steady_tone_screen,
+            "steady_tone_flag": options.steady_tone_flag,
             "transcript_evaluator_enabled": transcript_evaluator is not None,
         },
         counts={"requested": len(rows), "evaluated": len(evaluated), "failed": len(failures)},
@@ -628,6 +774,20 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
         f"Failures: {len(failures)}",
         f"Clips with clipping: {report['aggregate'].get('clips_with_clipping', 0)}",
         f"All-silent clips: {report['aggregate'].get('clips_all_silent', 0)}",
+        (
+            "Frame-grid comb flags (grid tone/fold/F0 lock/steady tone): "
+            f"{report['aggregate'].get('clips_grid_tone_flagged', 0)}/"
+            f"{report['aggregate'].get('clips_fold_periodic_flagged', 0)}/"
+            f"{report['aggregate'].get('clips_f0_locked_to_frame_grid', 0)}/"
+            f"{report['aggregate'].get('clips_steady_tone_flagged', 0)}"
+            f" of {len(evaluated)}"
+        ),
+        (
+            "Grid-tone excess dB p50/max: "
+            f"{(report['aggregate'].get('grid_tone_excess_db') or {}).get('p50')}/"
+            f"{(report['aggregate'].get('grid_tone_excess_db') or {}).get('max')}"
+        ),
+        "These flag; they do not select. A blind listening round decides.",
         "Transcript evaluator: "
         + ("enabled (caller supplied)" if transcript_evaluator else "disabled"),
         f"Result: {'PASS' if report['ok'] else 'FAIL'}",

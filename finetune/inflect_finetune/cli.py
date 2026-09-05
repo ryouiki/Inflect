@@ -30,6 +30,27 @@ def _fraction(value: str) -> float:
     return parsed
 
 
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
+    return parsed
+
+
+def _unit_interval(value: str) -> float:
+    parsed = float(value)
+    if not 0.0 <= parsed < 1.0:
+        raise argparse.ArgumentTypeError("value must be in [0, 1)")
+    return parsed
+
+
 def _optional_step(value: str) -> int | None:
     if value.lower() in {"none", "never", "off"}:
         return None
@@ -160,6 +181,77 @@ def _add_train(subparsers: Any) -> None:
         "--validation-interval", type=_positive_int, default=argparse.SUPPRESS
     )
     parser.add_argument("--log-interval", type=_positive_int, default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--feature-loss-weight", type=_non_negative_float, default=argparse.SUPPRESS
+    )
+    # Controls for the frame-rate comb described in docs/TROUBLESHOOTING.md.
+    # Every one of them is off by default, so omitting them all reproduces the
+    # behaviour of runs made before they existed.
+    parser.add_argument(
+        "--adversarial-gating",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help=(
+            "Hold the generator's adversarial and feature-matching terms at "
+            "zero while the decoder is frozen. The discriminator keeps "
+            "training, so the gated window is its warm-up."
+        ),
+    )
+    parser.add_argument(
+        "--adversarial-ramp-steps",
+        type=_non_negative_int,
+        default=argparse.SUPPRESS,
+        help="Steps to ramp the gated adversarial weight from 0 to 1 after unfreeze.",
+    )
+    parser.add_argument(
+        "--decoder-lr-warmup-steps",
+        type=_non_negative_int,
+        default=argparse.SUPPRESS,
+        help="Steps to ease the decoder learning rate in after unfreeze.",
+    )
+    parser.add_argument(
+        "--decoder-polish-mode",
+        choices=("adversarial", "recon"),
+        default=argparse.SUPPRESS,
+        help=(
+            "'recon' trains only the decoder during the polish stage, against "
+            "reconstruction losses with no discriminator."
+        ),
+    )
+    parser.add_argument(
+        "--stft-loss-weight",
+        type=_non_negative_float,
+        default=argparse.SUPPRESS,
+        help="Weight of the multi-resolution linear STFT reconstruction loss.",
+    )
+    parser.add_argument(
+        "--decoder-proximal-weight",
+        type=_non_negative_float,
+        default=argparse.SUPPRESS,
+        help="Weight holding the decoder near the weights this run started from.",
+    )
+    parser.add_argument(
+        "--decoder-freeze-upsamplers",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Keep the transposed convolutions frozen through the polish stage.",
+    )
+    parser.add_argument(
+        "--posterior-init",
+        choices=("fresh", "inherit"),
+        default=argparse.SUPPRESS,
+        help=(
+            "'inherit' loads posterior.pth beside the base checkpoint instead "
+            "of initializing a new posterior encoder."
+        ),
+    )
+    parser.add_argument(
+        "--generator-ema-decay",
+        type=_unit_interval,
+        default=argparse.SUPPRESS,
+        metavar="DECAY",
+        help="Keep an averaged copy of the generator; 0 disables it.",
+    )
     parser.set_defaults(handler=_run_train)
 
 
@@ -186,6 +278,23 @@ def _add_evaluate(subparsers: Any) -> None:
         "--save-audio",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--hop-length",
+        type=_positive_int,
+        help=(
+            "Frame hop the comb screens are measured against. Read from the "
+            "model config when omitted."
+        ),
+    )
+    parser.add_argument(
+        "--steady-tone-screen",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Score held steady tones above 1200 Hz. This is the screen that "
+            "separates a ringing render from a real recording most cleanly."
+        ),
     )
     parser.set_defaults(handler=_run_evaluate)
 
@@ -222,6 +331,20 @@ def _add_export(subparsers: Any) -> None:
         help="Released Micro/Nano directory whose public runtime should be copied.",
     )
     parser.add_argument("--onnx-opset", type=int, default=17)
+    parser.add_argument(
+        "--generator-state",
+        choices=("live", "ema"),
+        default="live",
+        help="Export the live weights or the averaged copy kept during training.",
+    )
+    parser.add_argument(
+        "--include-posterior",
+        action="store_true",
+        help=(
+            "Also write posterior.pth, so a later run can chain onto this "
+            "export with --posterior-init inherit."
+        ),
+    )
     parser.add_argument("--model-name")
     parser.add_argument("--source-revision")
     parser.add_argument("--overwrite", action="store_true")
@@ -308,6 +431,18 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "checkpoint_interval",
         "validation_interval",
         "log_interval",
+        # Every flag needs an entry here as well as a parser entry. A missing
+        # name parses cleanly and is then silently dropped.
+        "feature_loss_weight",
+        "adversarial_gating",
+        "adversarial_ramp_steps",
+        "decoder_lr_warmup_steps",
+        "decoder_polish_mode",
+        "stft_loss_weight",
+        "decoder_proximal_weight",
+        "decoder_freeze_upsamplers",
+        "posterior_init",
+        "generator_ema_decay",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}
@@ -338,6 +473,8 @@ def _run_evaluate(args: argparse.Namespace) -> dict[str, Any]:
             variation=args.variation,
             overwrite=args.overwrite,
             save_audio=args.save_audio,
+            hop_length=args.hop_length,
+            steady_tone_screen=args.steady_tone_screen,
         )
     )
 
@@ -392,6 +529,8 @@ def _run_export(args: argparse.Namespace) -> dict[str, Any]:
             package_template=args.package_template,
             include_onnx=args.format == "onnx",
             onnx_opset=args.onnx_opset,
+            generator_state=args.generator_state,
+            include_posterior=args.include_posterior,
             model_name=args.model_name,
             source_revision=args.source_revision,
             overwrite=args.overwrite,

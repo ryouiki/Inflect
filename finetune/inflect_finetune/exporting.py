@@ -18,6 +18,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from .checkpoint import FRESH_PREFIXES, load_posterior_sidecar, save_posterior_sidecar
 from .reporting import file_record, make_report, sha256_file, status, write_checksums, write_json
 
 
@@ -42,6 +43,7 @@ _TRAINING_ONLY_TOP_LEVEL_FIELDS = frozenset(
         "discriminators",
         "disc",
         "epoch",
+        "generator_ema",
         "mpd",
         "net_d",
         "optim",
@@ -58,6 +60,11 @@ _TRAINING_ONLY_TOP_LEVEL_FIELDS = frozenset(
         "step",
     }
 )
+
+_GENERATOR_EMA_FIELD = "generator_ema"
+_GENERATOR_STATE_CHOICES = ("live", "ema")
+_STATE_PAYLOAD_KEYS = ("model", "state_dict", "generator", "net_g")
+_STATE_KEY_PREFIXES = ("module.", "model.", "generator.")
 
 
 def _is_training_only_name(name: str) -> bool:
@@ -76,6 +83,13 @@ class ExportOptions:
     runtime and inference files are copied into the result and used for strict
     model-load verification. The source checkpoint may be either an inference
     checkpoint or a training checkpoint containing ``model``/``state_dict``.
+
+    ``generator_state`` chooses which saved weights become the export: the live
+    generator, or the ``generator_ema`` shadow of a run that tracked one.
+    ``include_posterior`` additionally writes a ``posterior.pth`` sidecar beside
+    ``model.pth`` so a chained run can inherit the trained posterior encoder
+    instead of paying for a freshly initialized one again. ``model.pth`` itself
+    stays strictly inference-only under either option.
     """
 
     checkpoint: str | Path
@@ -91,6 +105,8 @@ class ExportOptions:
     source_revision: str | None = None
     overwrite: bool = False
     verify: bool = True
+    generator_state: str = "live"
+    include_posterior: bool = False
 
 
 def _load_json(path: Path) -> Any:
@@ -189,16 +205,48 @@ def _load_symbols(
     return _symbols_from_payload(source), None
 
 
-def _extract_state(
-    payload: Any,
-) -> tuple[dict[str, torch.Tensor], dict[str, Any], list[str]]:
-    if not isinstance(payload, Mapping):
-        raise ValueError("Checkpoint must contain a mapping.")
+def _normalize_state_key(raw_key: Any) -> str:
+    key = str(raw_key)
+    for prefix in _STATE_KEY_PREFIXES:
+        if key.startswith(prefix):
+            return key[len(prefix) :]
+    return key
+
+
+def _select_generator_state(payload: Mapping[str, Any], generator_state: str) -> Any:
+    """Pick the saved weights an export reads, so provenance is never implicit."""
+
+    if generator_state not in _GENERATOR_STATE_CHOICES:
+        raise ValueError(
+            f"Unknown generator_state {generator_state!r}. Valid values are "
+            + ", ".join(repr(choice) for choice in _GENERATOR_STATE_CHOICES)
+            + "."
+        )
+    if generator_state == "ema":
+        shadow = payload.get(_GENERATOR_EMA_FIELD)
+        if not isinstance(shadow, Mapping):
+            raise ValueError(
+                f"generator_state='ema' needs a {_GENERATOR_EMA_FIELD!r} payload key, "
+                "which this checkpoint does not contain. Train with the generator EMA "
+                "enabled, or export with generator_state='live'."
+            )
+        return shadow
     state: Any = payload
-    for key in ("model", "state_dict", "generator", "net_g"):
+    for key in _STATE_PAYLOAD_KEYS:
         if key in payload and isinstance(payload[key], Mapping):
             state = payload[key]
             break
+    return state
+
+
+def _extract_state(
+    payload: Any,
+    *,
+    generator_state: str = "live",
+) -> tuple[dict[str, torch.Tensor], dict[str, Any], list[str]]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("Checkpoint must contain a mapping.")
+    state = _select_generator_state(payload, generator_state)
     if not isinstance(state, Mapping):
         raise ValueError("Checkpoint does not contain a model state dictionary.")
     tensors: dict[str, torch.Tensor] = {}
@@ -206,11 +254,7 @@ def _extract_state(
     for raw_key, value in state.items():
         if not isinstance(value, torch.Tensor):
             continue
-        key = str(raw_key)
-        for prefix in ("module.", "model.", "generator."):
-            if key.startswith(prefix):
-                key = key[len(prefix) :]
-                break
+        key = _normalize_state_key(raw_key)
         if _is_training_only_name(key):
             stripped.append(key)
             continue
@@ -219,6 +263,24 @@ def _extract_state(
         raise ValueError("Checkpoint state dictionary contains no tensors.")
     metadata = {str(key): value for key, value in payload.items() if value is not state}
     return tensors, metadata, sorted(stripped)
+
+
+def _extract_posterior_state(payload: Mapping[str, Any]) -> dict[str, torch.Tensor]:
+    """Collect the posterior encoder from the live weights.
+
+    The posterior is training-only and never joins the EMA shadow, so the
+    sidecar is the same whichever generator state is exported.
+    """
+
+    state = _select_generator_state(payload, "live")
+    tensors: dict[str, torch.Tensor] = {}
+    for raw_key, value in state.items():
+        if not isinstance(value, torch.Tensor):
+            continue
+        key = _normalize_state_key(raw_key)
+        if key.startswith(FRESH_PREFIXES):
+            tensors[key] = value.detach().cpu().contiguous()
+    return tensors
 
 
 def _load_checkpoint(path: Path) -> Mapping[str, Any]:
@@ -1480,7 +1542,20 @@ def export_checkpoint(options: ExportOptions) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
 
     payload = _load_checkpoint(checkpoint)
-    state, source_metadata, stripped_keys = _extract_state(payload)
+    state, source_metadata, stripped_keys = _extract_state(
+        payload,
+        generator_state=options.generator_state,
+    )
+    posterior_state: dict[str, torch.Tensor] | None = None
+    if options.include_posterior:
+        posterior_state = _extract_posterior_state(payload)
+        if not posterior_state:
+            raise ValueError(
+                "include_posterior=True found no enc_q.* tensors in "
+                f"{checkpoint}. A posterior sidecar can only come from a training "
+                "checkpoint; an inference checkpoint carries no posterior encoder, so "
+                "a chained run would silently start from a fresh one."
+            )
     package_template = _resolve_package_template(options, payload)
     config, config_source = _resolve_config(options, checkpoint, package_template)
     symbols, symbols_source = _load_symbols(
@@ -1551,6 +1626,14 @@ def export_checkpoint(options: ExportOptions) -> dict[str, Any]:
     )
     frontend_path = write_json(output / "frontend.json", frontend_contract)
     produced = [model_path, config_path, symbols_path, frontend_path]
+    posterior_path: Path | None = None
+    if posterior_state is not None:
+        posterior_path = save_posterior_sidecar(
+            output / "posterior.pth",
+            state=posterior_state,
+            iteration=int(inference_payload["iteration"]),
+        )
+        produced.append(posterior_path)
 
     strict_load_check = status(
         True,
@@ -1608,6 +1691,24 @@ def export_checkpoint(options: ExportOptions) -> dict[str, Any]:
                 unexpected_keys=training_unexpected,
             )
         )
+        if posterior_path is not None:
+            inherited = load_posterior_sidecar(posterior_path)
+            completed_state = dict(state)
+            completed_state.update(inherited)
+            completed = training_model.load_state_dict(completed_state, strict=True)
+            checks.append(
+                status(
+                    not completed.missing_keys and not completed.unexpected_keys,
+                    "Posterior sidecar completes the training-form generator, so a "
+                    "chained run inherits the trained posterior instead of a fresh one",
+                    posterior_tensor_count=len(inherited),
+                    posterior_parameters=sum(
+                        tensor.numel() for tensor in inherited.values()
+                    ),
+                    missing_keys=list(completed.missing_keys),
+                    unexpected_keys=list(completed.unexpected_keys),
+                )
+            )
         del training_model
     elif options.verify:
         raise ValueError(
@@ -1672,6 +1773,7 @@ def export_checkpoint(options: ExportOptions) -> dict[str, Any]:
         },
         output_dir=".",
         deployable_parameters=deployable_parameters,
+        generator_state=options.generator_state,
         stripped_training_tensors={
             "count": len(stripped_keys),
             "keys": stripped_keys,

@@ -10,7 +10,7 @@ import shutil
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, MutableMapping, Sequence
 
 import numpy as np
 import torch
@@ -22,6 +22,7 @@ RELEASE_FORMAT = "inflect_vits_inference_checkpoint_v1"
 TRAINING_FORMAT = "inflect_adaptation_training_checkpoint_v1"
 INFERENCE_FORMAT = "inflect_vits_inference_checkpoint_v1"
 RUN_IDENTITY_FORMAT = "inflect_adaptation_run_identity_v1"
+POSTERIOR_FORMAT = "inflect_vits_posterior_v1"
 EMBEDDING_KEY = "enc_p.emb.weight"
 FRESH_PREFIXES = ("enc_q.",)
 
@@ -43,6 +44,10 @@ class CompatibilityReport:
     fresh_parameter_count: int
     fresh_prefixes: tuple[str, ...]
     verified_equal_after_copy: bool
+    # fresh_prefixes stays the truth about which tensors the release omits; these two
+    # record where a fresh posterior's values came from, a seed or an earlier run.
+    posterior_source: str = "fresh"
+    posterior_tensor_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -112,12 +117,19 @@ def warm_start_from_release(
     target_symbols: Sequence[str],
     *,
     initialization_seed: int = 1234,
+    posterior_state: Mapping[str, torch.Tensor] | None = None,
 ) -> CompatibilityReport:
     """Load all released tensors exactly, allowing only a fresh enc_q.
 
     The embedding may grow for a new language. Existing rows are mapped by
     symbol identity and remain bit-identical; only genuinely new rows are
     initialized.
+
+    `posterior_state` inherits a previous run's posterior instead of paying for a
+    freshly seeded one again. It is held to the model's own posterior key set
+    exactly: a sidecar that differs describes a different architecture, and
+    accepting it partially would yield a run that reports itself warm-started
+    while part of it is not.
     """
 
     source_path = Path(checkpoint_path).resolve()
@@ -162,6 +174,31 @@ def warm_start_from_release(
     if mismatched:
         raise RuntimeError(f"Released non-embedding tensors do not match exactly: {mismatched}")
 
+    if posterior_state is not None:
+        unpaired = sorted(set(posterior_state) ^ set(fresh))
+        if unpaired:
+            raise RuntimeError(
+                "Posterior sidecar does not describe this model's posterior; keys present on "
+                f"only one side: {unpaired}"
+            )
+        posterior_mismatched = [
+            (
+                key,
+                tuple(posterior_state[key].shape),
+                tuple(target[key].shape),
+                posterior_state[key].dtype,
+                target[key].dtype,
+            )
+            for key in fresh
+            if posterior_state[key].shape != target[key].shape
+            or posterior_state[key].dtype != target[key].dtype
+        ]
+        if posterior_mismatched:
+            raise RuntimeError(
+                f"Posterior sidecar tensors do not match the model posterior: "
+                f"{posterior_mismatched}"
+            )
+
     migrated = target[EMBEDDING_KEY].clone()
     base_index = _occurrence_indices(base_symbols)
     target_index = _occurrence_indices(target_symbols)
@@ -189,6 +226,11 @@ def warm_start_from_release(
             loaded[key] = value
     loaded[EMBEDDING_KEY] = migrated
     model.load_state_dict(loaded, strict=True)
+    if posterior_state is not None:
+        live = model.state_dict()
+        with torch.no_grad():
+            for key, value in posterior_state.items():
+                live[key].copy_(value)
 
     verified = model.state_dict()
     unequal = [
@@ -196,6 +238,12 @@ def warm_start_from_release(
         for key in source_keys - {EMBEDDING_KEY}
         if not torch.equal(verified[key].cpu(), source[key].cpu())
     ]
+    if posterior_state is not None:
+        unequal.extend(
+            key
+            for key, value in posterior_state.items()
+            if not torch.equal(verified[key].cpu(), value.cpu())
+        )
     for identity, source_index in base_index.items():
         if identity in target_index:
             if not torch.equal(
@@ -233,6 +281,8 @@ def warm_start_from_release(
         fresh_parameter_count=fresh_parameters,
         fresh_prefixes=FRESH_PREFIXES,
         verified_equal_after_copy=True,
+        posterior_source="fresh" if posterior_state is None else "sidecar",
+        posterior_tensor_count=0 if posterior_state is None else len(posterior_state),
     )
 
 
@@ -243,6 +293,7 @@ def cpu_compatibility_report(
     target_symbols: Sequence[str],
     *,
     initialization_seed: int = 1234,
+    posterior_state: Mapping[str, torch.Tensor] | None = None,
 ) -> CompatibilityReport:
     """Run strict migration on CPU and return its machine-readable audit."""
 
@@ -253,6 +304,7 @@ def cpu_compatibility_report(
         base_symbols,
         target_symbols,
         initialization_seed=initialization_seed,
+        posterior_state=posterior_state,
     )
 
 
@@ -283,8 +335,15 @@ def build_run_identity(
     prepared_dir: str | Path,
     options: Mapping[str, Any],
     optimizer_schema: Mapping[str, Any],
+    posterior_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build a public, path-independent identity for one adaptation run."""
+    """Build a public, path-independent identity for one adaptation run.
+
+    A run that inherits a posterior sidecar pins it here, so swapping the sidecar
+    between runs is as fatal on resume as swapping model.pth. A run without one
+    records no posterior field at all: adding a null would change the identity of
+    every default run.
+    """
 
     base = Path(base_root).resolve()
     prepared = Path(prepared_dir).resolve()
@@ -296,6 +355,8 @@ def build_run_identity(
         "validation split": prepared / "validation.jsonl",
         "symbol inventory": prepared / "symbols.json",
     }
+    if posterior_path is not None:
+        required["posterior sidecar"] = Path(posterior_path).resolve()
     missing = [f"{label}: {path}" for label, path in required.items() if not path.is_file()]
     if missing:
         raise FileNotFoundError(
@@ -322,6 +383,8 @@ def build_run_identity(
         "options": dict(options),
         "optimizer_schema": dict(optimizer_schema),
     }
+    if posterior_path is not None:
+        identity["base"]["posterior_sha256"] = sha256_file(required["posterior sidecar"])
     # Enforce JSON stability at construction time instead of failing at save.
     return json.loads(_canonical_json(identity))
 
@@ -423,6 +486,7 @@ def save_training_checkpoint(
     symbols: Sequence[str],
     compatibility: CompatibilityReport,
     run_identity: Mapping[str, Any],
+    generator_ema: Mapping[str, torch.Tensor] | None = None,
     latest_path: str | Path | None = None,
 ) -> Path:
     destination = Path(path)
@@ -444,6 +508,12 @@ def save_training_checkpoint(
         "run_identity": dict(run_identity),
         "rng_state": capture_rng_state(),
     }
+    # Only a run that averages the generator adds the key, so a run that does not
+    # keeps writing exactly the payload it wrote before the option existed.
+    if generator_ema is not None:
+        payload["generator_ema"] = {
+            key: value.detach().cpu() for key, value in generator_ema.items()
+        }
     _atomic_torch_save(payload, destination)
     if latest_path is not None:
         copy_checkpoint_alias(destination, latest_path)
@@ -462,6 +532,7 @@ def resume_training_checkpoint(
     scaler: Any,
     expected_symbols: Sequence[str],
     expected_run_identity: Mapping[str, Any],
+    generator_ema: MutableMapping[str, torch.Tensor] | None = None,
 ) -> tuple[int, int, str]:
     payload = _torch_load(Path(path))
     if not isinstance(payload, dict) or payload.get("format") != TRAINING_FORMAT:
@@ -490,9 +561,23 @@ def resume_training_checkpoint(
         "step",
         "epoch",
     }
+    if generator_ema is not None:
+        required_state.add("generator_ema")
     missing_state = sorted(required_state - payload.keys())
+    if missing_state == ["generator_ema"]:
+        raise ValueError(
+            "Resume checkpoint carries no averaged generator state because it predates the "
+            "generator_ema_decay option; resume without generator_ema_decay, or start a new run."
+        )
     if missing_state:
         raise ValueError(f"Resume checkpoint is missing mutable state: {missing_state}")
+    if generator_ema is not None:
+        unpaired = sorted(set(payload["generator_ema"]) ^ set(generator_ema))
+        if unpaired:
+            raise ValueError(
+                "Resume checkpoint averaged generator state does not match the live averaged "
+                f"generator; keys present on only one side: {unpaired}"
+            )
 
     # Identity, symbols, stage, and payload shape are validated before any
     # live module, optimizer, scaler, scheduler, or RNG state is mutated.
@@ -503,9 +588,79 @@ def resume_training_checkpoint(
     scheduler_g.load_state_dict(payload["scheduler_g"])
     scheduler_d.load_state_dict(payload["scheduler_d"])
     scaler.load_state_dict(payload["scaler"])
+    # A caller without averaging ignores a saved average, so an EMA checkpoint still
+    # resumes into a run that turned the option off.
+    if generator_ema is not None:
+        with torch.no_grad():
+            for key, value in payload["generator_ema"].items():
+                generator_ema[key].copy_(value)
     if "rng_state" in payload:
         restore_rng_state(payload["rng_state"])
     return int(payload["step"]), int(payload["epoch"]), stage
+
+
+def save_posterior_sidecar(
+    path: str | Path,
+    *,
+    generator: nn.Module | None = None,
+    state: Mapping[str, torch.Tensor] | None = None,
+    iteration: int,
+) -> Path:
+    """Write the training-only posterior beside an export, for a later run to inherit.
+
+    model.pth stays strictly inference-only, so a chained run otherwise starts from
+    a freshly seeded posterior every time and pays that cost again.
+
+    A caller holding a live module passes `generator`; the export path holds
+    tensors read out of a saved payload and passes `state`. Both go through one
+    writer so the format has a single owner.
+    """
+
+    if (generator is None) == (state is None):
+        raise ValueError("Pass exactly one of generator or state.")
+    source = generator.state_dict() if generator is not None else state
+    posterior = {
+        key: value.detach().cpu()
+        for key, value in source.items()
+        if key.startswith(FRESH_PREFIXES)
+    }
+    if not posterior:
+        raise ValueError(
+            f"The source holds no tensors under {FRESH_PREFIXES}; it has no posterior to "
+            "export."
+        )
+    destination = Path(path)
+    _atomic_torch_save(
+        {"format": POSTERIOR_FORMAT, "model": posterior, "iteration": int(iteration)},
+        destination,
+    )
+    return destination
+
+
+def load_posterior_sidecar(path: str | Path) -> dict[str, torch.Tensor]:
+    source = Path(path).resolve()
+    payload = _torch_load(source)
+    if not isinstance(payload, dict) or str(payload.get("format", "")) != POSTERIOR_FORMAT:
+        raise ValueError(
+            f"{source} is not an Inflect posterior sidecar; expected format "
+            f"{POSTERIOR_FORMAT!r}."
+        )
+    state = payload.get("model")
+    if state is None or not isinstance(state, Mapping):
+        raise ValueError(f"{source} does not contain a posterior state mapping.")
+    foreign = sorted(
+        str(key)
+        for key, value in state.items()
+        if not isinstance(key, str)
+        or not key.startswith(FRESH_PREFIXES)
+        or not torch.is_tensor(value)
+    )
+    if foreign:
+        raise ValueError(
+            f"{source} holds entries that are not posterior tensors under {FRESH_PREFIXES}: "
+            f"{foreign}"
+        )
+    return dict(state)
 
 
 def save_inference_checkpoint(
@@ -514,18 +669,24 @@ def save_inference_checkpoint(
     generator: nn.Module,
     iteration: int,
     learning_rate: float,
+    state: Mapping[str, torch.Tensor] | None = None,
 ) -> Path:
-    """Save deployable state; training-only posterior tensors are excluded."""
+    """Save deployable state; training-only posterior tensors are excluded.
 
-    state = {
+    `state` exports weights that are not the module's live ones — an averaged copy
+    of the generator kept alongside it — through exactly this filtering and payload
+    shape, so both candidates of a run are comparable file for file.
+    """
+
+    deployable = {
         key: value.detach().cpu()
-        for key, value in generator.state_dict().items()
+        for key, value in (generator.state_dict() if state is None else state).items()
         if not key.startswith(FRESH_PREFIXES)
     }
-    deployable_parameters = sum(tensor.numel() for tensor in state.values())
+    deployable_parameters = sum(tensor.numel() for tensor in deployable.values())
     payload = {
         "format": INFERENCE_FORMAT,
-        "model": state,
+        "model": deployable,
         "iteration": int(iteration),
         "learning_rate": float(learning_rate),
         "deployable_parameters": deployable_parameters,
