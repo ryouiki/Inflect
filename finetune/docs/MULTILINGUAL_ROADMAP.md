@@ -389,9 +389,16 @@ JA > KO > JSUT. 원인은 §7 R16, 전체 진단은 `inflect-work/evals/diag/RIN
 | C10 | 블라인드 A/B 페이지 생성기 | `examples/build_blind_ab_page.py` · `examples/tally_verdict.py` | M4 | ✅ 완료(2026-09-04). 행별 무작위 라벨·봉인 mapping·실물 앵커 강제·catch 행 |
 | C11 | `ko_g2pkk.py` | `frontends/ko_g2pkk.py` | M5 | ✅ 완료. 파이프라인 파일 변경 0 — **G5 통과** |
 | C12 | 배포 런타임 프론트엔드 패키징 | `_write_deployment_runtime()` | M6 | |
+| C13 | 적대항 게이팅 + 램프 + 디코더 lr 워밍업 | `training._adversarial_weight()` · `_decoder_lr_scale()` · `_scaled_decoder_lr()` | M7 | ✅ 완료(2026-09-05). 기본 off. 게이트 구간에도 D는 계속 학습 |
+| C14 | recon-only 폴리시 + MR-STFT + proximal | `training._enabled_groups()` · `_multi_resolution_stft_loss()` · `_proximal_loss()` | M7 | ✅ 완료(2026-09-05). recon은 디코더만 학습, D 정지. STFT는 해상도 평균(PWG 관례) |
+| C15 | 업샘플러 동결 · posterior 사이드카 · 생성기 EMA | `training._apply_stage()` · `checkpoint.save_posterior_sidecar()` · `exporting.export_checkpoint()` | M7 | ✅ 완료(2026-09-05). 업샘플러 동결은 그룹 분리가 아니라 기울기 마스크 — 옵티마이저 state 형태 불변 |
+| C16 | 프레임 격자 스크린 + fp32 mel | `grid_screens.py`(신규) · `evaluation._grid_screens()` · `training._mel_from_spec()` | M7 | ✅ 완료(2026-09-05). 실물 40 대 렌더 40에서 grid·steady-tone이 0/40 대 40/40으로 완전 분리. fp32 mel은 AMP 런의 수치를 바꾸는 의도된 변경 |
 
-학습 코어(`training.py`), 임베딩 마이그레이션(`checkpoint.py`), 분할 로직은 **변경
-대상이 아니다.**
+학습 코어(`training.py`)와 임베딩 마이그레이션(`checkpoint.py`)은 원래 **변경 대상이
+아니었다.** 2026-09-05 사용자가 링잉 대응(개선안 b)을 승인하면서 이 제약을 해제했고,
+C13–C16이 그 결과다. 새 옵션은 전부 기본 off이고 기본 경로의 손실·스케줄은 20 step
+비교에서 마지막 자리까지 동일함을 확인했다. **분할 로직은 여전히 변경 대상이 아니고
+실제로 손대지 않았다.**
 
 ---
 
@@ -671,7 +678,7 @@ G4 라운드에서 발음 결함이 나오면 여기를 먼저 의심한다.
 | **R13** | KO `Chatbot_` 1,299클립(38%)이 다른 파이프라인 — `Arona_` 접두 없음, >16 kHz 에너지 8배, 같은 NAS에 2023-04 arona RVC 체크포인트 존재 | 높음 | prepare 전 **블라인드 스팟체크**(Chatbot 20 + 타 서브코퍼스 20, 봉인 mapping). 불합격 시 제외본으로 run 1 |
 | **R14** | 단일 세션 코퍼스 암기 | 중간 | JA-A 8,000 step(≈53 epoch), KO-A 10,000 step. 프리셋 20k(≈133 epoch)는 쓰지 않는다. OOD 텍스트를 모든 청취 게이트에 넣는다 |
 | **R15** | 학습 연장이 불가 — `max_steps`가 run identity에 포함 | 낮음 | 스텝 예산을 사전 선언하고, 연장은 export → `--base` 체이닝 새 run으로 |
-| **R16** | **디코더 업샘플 격자 톤(링잉).** 신선한 `enc_q`/mean-only `flow`가 동결 디코더를 역산하며 z가 릴리스 분포를 벗어나고(채널평균 RMS 0.74 → 1.4–1.5), anti-imaging 없는 HiFi-GAN 디코더가 그 z를 93.75/750/6000 Hz 격자 톤으로 냄; 신선한 D의 해제 충격이 정적 톤을 응집; 체이닝은 이를 두 번 겪음 | **치명 — 2026-09-04 G4 두 라운드 모두 사용자 판정 "쓸 수 없음"** | 진단 `inflect-work/evals/diag/RINGING-DIAGNOSIS.md`. 처방 후보: 적대항 게이팅·recon-only polish·MR-STFT 손실·z 앵커·체이닝 시 enc_q 유지(학습 코어 변경 — 사용자 결정 대기). 스크린에 정지 톤 점수·hop-comb 비율·F0 93.75 Hz 잠김 추가 |
+| **R16** | **디코더 업샘플 격자 톤(링잉).** 신선한 `enc_q`/mean-only `flow`가 동결 디코더를 역산하며 z가 릴리스 분포를 벗어나고(채널평균 RMS 0.74 → 1.4–1.5), anti-imaging 없는 HiFi-GAN 디코더가 그 z를 93.75/750/6000 Hz 격자 톤으로 냄; 신선한 D의 해제 충격이 정적 톤을 응집; 체이닝은 이를 두 번 겪음 | **치명 — 2026-09-04 G4 두 라운드 모두 사용자 판정 "쓸 수 없음"** | 진단 `inflect-work/evals/diag/RINGING-DIAGNOSIS.md`. 2026-09-05 개선안 (b) 구현(C13–C16): 적대항 게이팅·recon-only polish·MR-STFT·proximal·업샘플러 동결·posterior 사이드카·EMA + 스크린 4종(정지 톤 점수·격자 톤 초과·fold 초과·F0 격자 잠김). **미해소** — 계측은 갖췄고 처방의 효과는 KO 3 arm 미검증. z 앵커(b6b)는 다음 라운드 |
 | **R17** | **배포된 Micro 디코더는 alias-free가 꺼져 있다.** `config.json`에 `decoder_alias_free` 없음(→ False), `model.pth`에 Snake/필터 텐서 없음 — 표준 HiFi-GAN V1. README·ARCHITECTURE의 "alias-reduced decoder"와 불일치 | 중간 | 저장소 소유자 보고. 켜려면 재학습 필요(장기) |
 
 ---
@@ -701,3 +708,4 @@ G4 라운드에서 발음 결함이 나오면 여기를 먼저 의심한다.
 | 2026-09-04 | **M0/G0 통과** (RTX 5090 / sm_120 / torch 2.8.0+cu128 / pytest 111·1 / 실물 체이닝 21 passed). `mel_fmax 12000` 실측 → R4 해소. JA·KO·JSUT 로컬 복제·검증. Q1·Q2·Q3 결정 반영, R6·R7 해소, R9–R15 등재. **JA 경로를 하이브리드로 확정**하고 T1–T3 전환 규칙·직행 G4 baseline 정의를 §3.0에 고정. G1(c)를 자동 스크린으로 대체(예외 명시, R3 상향). C7을 조건부 보류로 이동. §6.1·§6.2·§6.4를 이 머신 기준으로 재작성. **G0을 따라가다 드러난 공개 툴킷 결함 2건 수정** — 문서가 지시한 `finetune/.venv`가 `test_public_safety`를 깨뜨린 것, `pyproject`가 릴리스 런타임의 `unidecode`/`num2words`를 선언하지 않아 깨끗한 설치에서 `train --base micro`가 죽던 것. |
 | 2026-09-04 | M2 통과. `ja-arona-v2`(A_CO026 제외)·`ja-jsut-v1`·`ko-arona-v1b` 준비. **KO 클리핑 정책 발동** — 소스가 아니라 우리 리샘플이 331행(9.89%)의 상단을 잘라내고 있었고, 선언대로 균일 −3 dB 후 재준비. **툴킷 결함 2건 추가 수정**(WAVEX 거부, 출력단 클리핑 미보고). C8·C9·C10 완료, 청취 파이프라인 실물 예행 검증. G3/stage-2/G4 실행 스크립트와 선언 규칙 고정. `fy` 수정이 사전 준비 데이터셋의 export를 무효화하는 것을 확인 — **프론트엔드 수정은 prepare 앞에 온다**. |
 | 2026-09-05 | **G4 두 라운드 미통과(링잉).** 진단 완료: 디코더 업샘플 격자 톤(93.75/750/6000 Hz 배수), 1차 원인 z 드리프트 + 신선한 D 충격 + 체이닝, anti-imaging 없는 디코더가 enabler. R16·R17 등재. E1(디코더 조기 해제) 기각. 처방은 학습 코어 변경이라 사용자 결정 대기. |
+| 2026-09-05 | **개선안 (b) 구현 — C13–C16 완료.** 사용자 승인으로 학습 코어 제약 해제. 손잡이 9개 전부 기본 off, 기본 경로 20 step 비교에서 레거시 열 불일치 0. pytest 155 → 330, ruff 74 → 68(신규 지적 0). 스크린 임계는 계획값에서 실측으로 이동(G 2.0 → 4.0 dB, fold 3.0 → 6.0 dB, steady-tone 기본 off → on) — 근거는 `inflect-work/runs/REMEDY-B-VERIFICATION.md`. **아직 링잉이 사라진다는 증거는 없다**: 600 step 스모크에서 게이팅을 켜고도 콤이 step 200에 나타났고(사이드카 G −0.24 → +7.18 dB), 다만 잠재 드리프트는 대조군보다 낮았다(z_dc_rms 1.035 대 1.19–1.42). 판정은 KO 3 arm 10,000 step이 한다. |

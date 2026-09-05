@@ -17,6 +17,10 @@ internal checkpoint-selection process.
 - Japanese and Korean frontends that add no symbols to the released inventory
 - symbol-aware embedding migration from Micro or Nano
 - staged generator/discriminator training with AMP and accumulation
+- opt-in controls for the frame-rate comb: adversarial gating, decoder
+  learning-rate warm-up, reconstruction-only polish, multi-resolution STFT
+  loss, decoder proximal anchor, upsampler freeze, generator averaging
+- automatic frame-grid artifact screens on every evaluated clip
 - atomic checkpoints and strict same-run resume validation
 - held-out waveform diagnostics and optional transcript evaluators
 - inference-only PyTorch and ONNX packages
@@ -138,7 +142,25 @@ inflect-adapt train \
 
 The public release checkpoint contains inference weights only. Training-only
 posterior and discriminator components are initialized by this toolkit, and
-new symbol embeddings are initialized deterministically.
+new symbol embeddings are initialized deterministically. Chaining a second run
+onto an export made with `--include-posterior` is the one exception, and it
+inherits from that export, never from the release.
+
+Adaptations of this model family have produced a steady comb of tones at
+multiples of the frame rate. The controls for it are off by default, so the
+command above behaves as it always has; `docs/TRAINING.md` explains what each
+one does and `docs/TROUBLESHOOTING.md` describes the symptom.
+
+```bash
+inflect-adapt train \
+  --base owensong/Inflect-Micro-v2 \
+  --dataset prepared/es \
+  --preset micro-12gb \
+  --adversarial-gating \
+  --decoder-lr-warmup-steps 300 \
+  --generator-ema-decay 0.999 \
+  --output runs/es-micro
+```
 
 ## 4. Resume safely
 
@@ -153,7 +175,9 @@ inflect-adapt train \
 
 Resume is accepted only for the same run identity. Changes to the base model,
 prepared data, symbols, frontend, public optimizer schema, or relevant
-configuration are rejected.
+configuration are rejected. The options are part of that identity, so this
+release's new option fields make checkpoints written by earlier versions
+unresumable, even at their defaults.
 
 The final resumable checkpoint is
 `runs/es-micro/checkpoints/adaptation-final.pth`. Step checkpoints and held-out

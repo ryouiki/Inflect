@@ -10,8 +10,10 @@ training snapshot. The trainer:
 2. copies all compatible released generator weights;
 3. migrates text embeddings by symbol identity;
 4. deterministically initializes newly added symbols;
-5. initializes the training-only posterior encoder and discriminator;
-6. creates fresh public optimizers, schedulers, scaler, and RNG state;
+5. initializes the training-only posterior encoder and discriminator, unless
+   `--posterior-init inherit` reads a posterior sidecar from the base;
+6. creates fresh public optimizers, schedulers, scaler, RNG state, and, when
+   `--generator-ema-decay` is set, an averaged copy of the generator;
 7. records hashes for the base model, prepared data, symbols, and options.
 
 This begins a new adaptation run. It does not continue the private release run.
@@ -52,6 +54,15 @@ not expect a symbol to be dropped, prepare the second dataset with
 Resume is a different thing and still refuses a changed base: chaining starts a
 new run, with a new output directory and a new run identity.
 
+By default the second run initializes its own posterior encoder, paying that
+cost twice. Exporting the first run with `--include-posterior` writes a
+`posterior.pth` sidecar beside `model.pth`, and `--posterior-init inherit`
+reads it, so the second run continues the posterior the first one trained. The
+sidecar's hash joins the run identity, so swapping it is caught exactly like
+swapping the base checkpoint. Inherit deliberately: a posterior whose latents
+had already drifted hands that drift to the next run, and the `z_dc_rms` column
+will show it from the first step.
+
 Both datasets must still be single-speaker. Preparation rejects a manifest with
 more than one speaker value, so a language base built from a multi-speaker
 corpus is not supported today — the first stage has to be one speaker whose
@@ -68,6 +79,60 @@ The generic public schedule has three stages:
 
 Stage boundaries are explicit and resumable. `--decoder-unfreeze-step none`
 keeps the decoder frozen.
+
+A frozen decoder does not mean a quiet decoder. The discriminator scores the
+audio it produces, and those gradients travel back through it into the
+posterior encoder and the flow. For the first two stages the model is therefore
+being pushed to satisfy a freshly initialized critic by moving its latents,
+with the one component that could answer properly held still. That is the
+mechanism behind the frame-rate comb described below, and the controls in this
+section exist to interrupt it. All of them are off by default.
+
+`--adversarial-gating` holds the generator's adversarial and feature-matching
+terms at exactly zero for as long as the decoder is frozen, then raises them to
+full weight linearly over `--adversarial-ramp-steps`, counted from the unfreeze
+step. The discriminator trains throughout, so the gated window is its warm-up
+rather than lost time. Gating with `--decoder-unfreeze-step none` is accepted
+and warned about: it means adaptation with no adversarial term at all.
+
+`--decoder-lr-warmup-steps` eases the decoder in after it unfreezes, scaling
+its learning rate by `min(1, (step - unfreeze) / warmup)`. The optimizer starts
+that parameter group with empty moment estimates, so without a warm-up its
+first update is the largest it will ever take, on the component whose released
+weights are the most valuable thing in the run. The scale is zero on the first
+step by design: the moments fill and the weights do not move. The learning rate
+recorded in `metrics.jsonl` and in the checkpoint is the unscaled nominal one,
+and `decoder_lr_scale` reports the factor separately.
+
+`--decoder-polish-mode recon` changes what the polish stage is. It trains only
+the decoder, against reconstruction losses with no discriminator at all, and
+asks a single question: can the decoder render the latents it is already given,
+cleanly. The posterior encoder and the flow are held, so those latents stop
+moving while it answers. Because the linguistic stage ends where the polish
+stage begins, a run that needs more language adaptation should move
+`--decoder-unfreeze-step` later rather than shorten the polish. The mode
+cannot be turned off partway through a run; going back to an adversarial polish
+means a new chained run.
+
+`--stft-loss-weight` adds a multi-resolution linear STFT reconstruction term
+alongside the mel loss, at three resolutions with 512, 1024 and 2048-point
+transforms. An 80-band mel averages over bands hundreds of hertz wide in the
+top octaves and barely charges for a narrow comb sitting there; the 2048-point
+resolution has 11.7 Hz bins at 24 kHz and does. The term is the mean over
+resolutions, following Parallel WaveGAN, so a weight quoted for the summed
+convention is worth three times as much here.
+
+`--decoder-proximal-weight` holds the decoder near the weights the run started
+from, measuring each tensor's squared drift relative to that tensor's own
+squared norm. The normalisation is what makes it steer. An unnormalised mean
+over millions of elements stays near zero even for a drift that ruins the
+render, so it reads as satisfied while nothing is being held.
+
+`--decoder-freeze-upsamplers` holds the transposed convolutions and the input
+convolution while the residual stack and the output convolution train. The
+upsamplers are where the frame grid enters the waveform. It is a gradient mask
+inside the existing decoder parameter group rather than a fourth group, so the
+shape of saved optimizer state does not change.
 
 ## Presets and overrides
 
@@ -120,7 +185,18 @@ runs/es-micro/
 
 Training checkpoints contain the public training state needed for exact
 same-run resume. Files in `exports/` are lightweight generator checkpoints,
-not complete deployment packages.
+not complete deployment packages. With `--generator-ema-decay` set, each
+`model-step-*.pth` is joined by a `model-ema-step-*.pth`, and the run ends with
+both `model.pth` and `model-ema.pth`; the averaged copy is a second candidate
+for the listening round at almost no cost.
+
+`metrics.jsonl` carries one row per optimizer step. Alongside the loss terms it
+records `adversarial_weight` and `decoder_lr_scale`, which say what the
+schedule was doing, and `z_dc_rms` and `z_rms`, which say how far the latents
+have moved. A term the schedule switched off is written as `null`, never as
+`0.0`: a zero would read as measured and negligible, which is a different
+claim. Each entry in `validation/step-*.json` carries the two cheap comb
+screens for that clip, as a trend to watch rather than a gate.
 
 ## Resume identity
 
@@ -140,6 +216,19 @@ inflect-adapt train \
 Do not bypass a rejection. Start a new output directory when the data or
 configuration changes.
 
+The options are part of that identity, so a release that adds an option field
+makes every earlier checkpoint unresumable. A checkpoint written before the
+controls in this section existed fails with `identity fields differ:
+['options']`. That is the guard working, not a bug in it, and the way forward
+is a new run or a chained one rather than a way around it.
+
+Nothing about the gate, the ramp or the warm-up is stored in the checkpoint,
+because each is a function of the step count, and the proximal anchor is
+re-derived from the base the run started from. The averaged generator is the
+only new state, and it rides in the checkpoint under `generator_ema`. A run
+that asks for an average and resumes from a checkpoint written without one is
+rejected rather than silently restarted from the base weights.
+
 ## Checkpoint selection
 
 Validation intervals create fixed-seed held-out synthesis and loss
@@ -152,7 +241,8 @@ Declare a selection rule before inspecting the final test set. Consider:
 - clipping, silence, duration, and truncated endings;
 - pronunciation and phoneme coverage;
 - voice consistency;
-- buzz, metallic resonance, sibilance, thinness, and transients;
+- buzz, metallic resonance, sibilance, thinness, and transients, for which
+  the frame-grid observables below give a machine-readable first pass;
 - blinded listening by fluent speakers.
 
 Predicted MOS, ASR WER, and training loss are useful diagnostics, not complete
@@ -225,6 +315,85 @@ range in semitones is what shows the contour still moving. The search range is
 a falling contour that is an artifact of the setting. A clip with no voiced
 frames reports no pitch rather than a pitch of zero, and the aggregate skips it
 instead of averaging the zero in.
+
+Four more observables per clip look for a comb on the decoder's frame grid,
+which is the sample rate over the hop, so 93.75 Hz for Micro at 24 kHz. The hop
+comes from the model config unless `--hop-length` says otherwise.
+
+| Observable | What it is |
+| --- | --- |
+| `grid_tone_excess_db` | On-grid power over off-grid power above 2 kHz, in dB. Zero by construction for real speech. |
+| `fold_periodic_excess_db` | The clip folded into hop-length frames, relative to the floor an uncorrelated signal would give. `fold_periodic_db` is the same measure without that correction and moves with clip length. |
+| `steady_tone_artifact_score` | Summed prominence of spectral peaks that are both steady across frames and above 1200 Hz. |
+| `f0_grid_deviation_hz` | Distance from the measured pitch to the nearest small multiple of the grid. A tracker fed a ringing render reports the comb as the voice. |
+
+Measured on one speaker, comparing 40 real recordings with 40 renders from a
+run a listener rejected for ringing:
+
+| Observable | Real, p50 and max | Ringing, p50 and max |
+| --- | --- | --- |
+| `grid_tone_excess_db` | -0.13 and 3.50 | 8.15 and 9.77 |
+| `fold_periodic_excess_db` | -0.16 and 5.19 | 4.17 and 8.35 |
+| `steady_tone_artifact_score` | 0.00 and 0.00 | 29.9 and 66.3 |
+
+At the shipped thresholds the grid-tone and steady-tone screens flagged none of
+the recordings and every one of the renders. The fold measure overlaps the two
+populations, so it corroborates rather than accuses. The aggregate reports
+`clips_grid_tone_flagged`, `clips_fold_periodic_flagged`,
+`clips_steady_tone_flagged` and `clips_f0_locked_to_frame_grid`.
+
+Two cautions. A pitch that happens to sit on the grid raises the grid-tone
+excess legitimately: a static 250 Hz tone scores +7.19 dB because every third
+harmonic lands on 750 Hz. Real speech pitch moves, so this did not appear in
+the recordings above, and it is why the pitch deviation is reported next to the
+excess rather than the excess alone. And these thresholds come from one speaker
+pair on one render channel, so a clip sitting just inside one has proven
+nothing. A screen that cannot measure a clip reports nothing and raises no
+flag, rather than treating silence as innocence.
+
+## Ringing at multiples of the frame rate
+
+Two adaptation rounds were rejected by a listener for a steady comb of tones at
+multiples of 93.75 Hz, audible even in the silence between words. The decoder
+upsamples with transposed convolutions and no anti-imaging filter, so that grid
+is where images land once anything upstream goes wrong.
+
+What went wrong was the latents. The released checkpoint carries no posterior
+encoder, so a fresh one starts every run, and while the decoder is frozen the
+adversarial gradients reach it and the flow through that frozen decoder with
+nothing anchoring where they go. The latent channel-mean RMS moved from the
+released 0.74 to 1.42 and 1.51 on the failing runs, and feeding those latents
+to the released decoder rang harder than feeding them to the adapted one, which
+is what identified the latents rather than the decoder weights. Freezing the
+decoder for the whole run does not help: an ablation that never unfroze it
+showed the comb by step 1000.
+
+The controls the diagnosis points at, as a starting set:
+
+```bash
+inflect-adapt train \
+  --base owensong/Inflect-Micro-v2 \
+  --dataset prepared/ko \
+  --preset balanced \
+  --adversarial-gating \
+  --adversarial-ramp-steps 1000 \
+  --decoder-lr-warmup-steps 300 \
+  --decoder-polish-mode recon \
+  --stft-loss-weight 1.0 \
+  --decoder-proximal-weight 0.1 \
+  --generator-ema-decay 0.999 \
+  --output runs/ko-micro
+```
+
+These are controls, not a cure. At the time of writing they have not been shown
+to remove the artifact at scale; what has been shown is that the screens above
+detect it without a listening round, and that with every control at its default
+the loss and the schedule are unchanged. Watch `z_dc_rms` in `metrics.jsonl`
+and the grid-tone excess in `validation/step-*.json` while the run is still
+cheap to abandon. Related work elsewhere is a warning as much as a
+recommendation: a reconstruction-only decoder fine-tune is not automatically
+comb-safe, and both an over-large decoder learning rate and an over-strong
+proximal weight have been observed to fire the comb rather than damp it.
 
 A row that carries an `audio` field is read from disk and no model is loaded,
 which is what makes the prepared `validation.jsonl` the real-audio anchor: the

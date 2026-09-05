@@ -62,7 +62,12 @@ symbols receive deterministic initialization. A base checkpoint may carry a
 larger inventory than the release as long as the released symbols keep their
 released positions; rows it holds that the new dataset does not use are dropped
 and reported. Training-only discriminators,
-optimizers, and schedulers are initialized from public generic defaults.
+optimizers, and schedulers are initialized from public generic defaults. The
+public schedule may hold the generator's adversarial terms at zero while the
+decoder is frozen, and may maintain an averaged copy of the generator; both are
+recorded in the run identity. A chained run may inherit a posterior encoder
+from an export that was explicitly asked to include one. The public release
+contains no posterior encoder in any case.
 
 ## Safety boundaries
 
@@ -85,6 +90,8 @@ At minimum, automated tests must cover:
 - language/frontend failures;
 - phoneme coverage and unknown-symbol reporting;
 - embedding migration by symbol identity;
+- generator objective assembly and the stage and schedule functions;
+- frame-grid artifact screens;
 - checkpoint save/resume behavior;
 - inference-only export loadability;
 - language-aware frontend packaging and refusal of silent English fallback;

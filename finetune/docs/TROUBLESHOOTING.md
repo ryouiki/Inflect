@@ -79,7 +79,12 @@ shorten training segments only if the trainer supports that change, or increase
 gradient accumulation. Restart after clearing the failed process.
 
 Do not compare runs as equivalent if batch semantics, segment length, precision,
-or optimizer behavior changed.
+or optimizer behavior changed. The mel projection and the waveform transform now
+run in full precision regardless of the surrounding cast, which fixed a
+half-precision window that made the transform return complex32 and quantized the
+mel target as well as the prediction. Mixed-precision loss values are therefore
+not comparable across that change; the largest observed difference in a log-mel
+value is 0.025, and runs with `--no-amp` are unaffected.
 
 ## Resume rejected
 
@@ -87,16 +92,67 @@ Compare the recorded toolkit version, base checkpoint, dataset hash, symbols
 hash, frontend metadata, model configuration, and optimizer schema. Resume
 rejection usually means the run inputs changed.
 
+`identity fields differ: ['options']` after an upgrade usually means the run
+inputs did not change and the toolkit did. The public options are part of the
+run identity, so a release that adds an option field makes every checkpoint
+written before it unresumable, including at that field's default. This is the
+guard doing its job. Finish the work in a new run, or export the interrupted
+one and chain from it.
+
 Start a new run rather than forcing incompatible state to load.
 
 ## Training loss improves but audio worsens
 
 Stop and inspect held-out audio. Common failures include decoder buzz, metallic
 resonance, excessive sibilance, clipped endings, duration collapse, speaker
-drift, and overfitting.
+drift, and overfitting. One of those has a mechanical explanation and automatic
+detection; see the section on ringing below.
 
 Select checkpoints using matched held-out listening and diagnostics, not loss
 alone. More steps can make adaptation worse.
+
+## A steady tone or hum behind the voice
+
+The giveaway is that it does not stop when the speaking does. A comb of tones at
+multiples of the sample rate over the frame hop sits under the whole render,
+including the silence between words, and on headphones it localizes as a single
+pitch behind the voice. For Micro at 24 kHz with hop 256 that is 93.75 Hz and
+its multiples.
+
+Confirm it from an evaluation report rather than by ear. `grid_tone_excess_db`
+is zero by construction for real speech and measured 8.15 dB at the median on a
+rejected run against -0.13 dB on the speaker's own recordings.
+`steady_tone_artifact_score` separated the same two sets completely, 29.9
+against 0.00. `clips_f0_locked_to_frame_grid` counts clips where the pitch
+tracker reported the comb as the voice; one failing checkpoint scored 134 of
+160 there. The training run also writes the two cheap screens into each
+`validation/step-*.json`, so the arrival can be dated to within a validation
+interval instead of discovered at the end.
+
+The cause found by investigation was drift in the latents, not in the decoder
+weights. The released checkpoint carries no posterior encoder, so a fresh one
+starts every run, and while the decoder is frozen the adversarial gradients
+still reach the posterior encoder and the flow through it with nothing
+anchoring where they go. Feeding the drifted latents to the released decoder
+rang harder than feeding them to the adapted one, which is what ruled the
+decoder out. The upsampler is what makes the drift audible on that particular
+grid, having no anti-imaging filter.
+
+Reach for `--adversarial-gating` with `--adversarial-ramp-steps` and
+`--decoder-lr-warmup-steps` first, and `--decoder-polish-mode recon` with
+`--stft-loss-weight` and `--decoder-proximal-weight` when a decoder polish is
+what turns the comb on. The stages section of `docs/TRAINING.md` explains what
+each one does.
+
+Three things were tried and measured and do not work. Freezing the decoder for
+the whole run does not prevent the comb; an ablation that never unfroze it
+showed it by step 1000 with 94 per cent of frames locked to the grid.
+Unfreezing earlier was worse early and no better at the end. Restoring the
+released decoder at export time makes it louder, not quieter, which follows
+from the fault being in the latents. Keep the screens in the loop whatever you
+try: reconstruction-only training is not automatically comb-safe, and both an
+over-large decoder learning rate and an over-strong proximal weight have been
+observed to fire the comb rather than damp it.
 
 ## Output is intelligible but pronunciation is wrong
 

@@ -25,6 +25,8 @@ exports.
 | Strict same-run resume | Implemented and tested |
 | Fixed-voice adaptation | Experimental quality |
 | New-language adaptation | Experimental quality |
+| Frame-grid comb screens | Implemented; thresholds from one speaker pair |
+| Adversarial gating, reconstruction polish, generator averaging | Implemented; effect on quality unproven |
 | PyTorch deployment export | Implemented and load-tested |
 | ONNX deployment export | Implemented; Nano parity-tested |
 | Runtime-selectable voices or languages | Not supported |
@@ -47,11 +49,20 @@ A model may remain intelligible while becoming thin, buzzy, metallic,
 sibilant, unstable, or unlike the target speaker. Low training loss is not
 evidence that adaptation succeeded.
 
+One of those has since been traced rather than merely named. A comb of tones on
+the decoder's frame grid, audible even in silence, comes from the latents
+drifting while the decoder is frozen, and the evaluation now measures it on
+every clip. The troubleshooting document describes the symptom and the
+controls. The rest of that list remains a list of things to listen for.
+
 ## Public toolkit versus private release process
 
 This package contains a generic compatible trainer: manifest readers, audio
 checks, frontend adapters, symbol migration, generic losses and optimizer
-defaults, evaluation utilities, checkpointing, and inference-only export.
+defaults, an optional reconstruction-only decoder polish with a
+multi-resolution STFT term and a proximal anchor, an optional generator
+average, evaluation utilities including the frame-grid artifact screens,
+checkpointing, and inference-only export.
 
 It does not publish or reconstruct:
 
@@ -66,6 +77,12 @@ The released generator is an initialization point, not a resumable copy of the
 original training run. It does not include the posterior encoder,
 discriminators, optimizers, schedulers, manifests, or RNG state needed to
 continue that run.
+
+An export this toolkit produces is a different matter. Asked for one, it writes
+a posterior sidecar beside the inference weights so that a chained run can
+continue the posterior encoder the previous run trained instead of starting a
+third one. That is a handoff between two adaptation runs, and it is never true
+of the public release, whose inference weights remain the only thing it ships.
 
 ## Claims for adapted checkpoints
 
