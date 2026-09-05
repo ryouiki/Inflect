@@ -189,10 +189,23 @@ Which of those is the worse sound has not been listened to.
 The listening round that followed reframed the problem. At 1,500 steps neither
 arm produced speech at all, only ringing at the tempo of the sentence, while a
 10,000-step control was scored as awkward but recognisable speech. What is
-failing is the formation of speech, not a residual noise on top of it. The next
-step is therefore a path diagnosis on checkpoints that already exist,
-separating reconstruction, real audio through the posterior encoder and the
-decoder, from inference, text through the prior and flow and the decoder.
+failing is the formation of speech, not a residual noise on top of it.
+
+Splitting the two paths on existing checkpoints then separated the two
+problems outright. A 10,000-step run reconstructs and infers as recognisable
+speech while carrying 8.1 dB of comb excess; the 1,500-step arms carry the
+same 7.7 to 8.6 dB and are not speech at all. **How much comb a render has
+does not predict whether speech formed in it.** Treat them as two problems.
+
+The same split found a working path that later broke. At step 500, with the
+prior, flow and decoder all still frozen, inference produced clean speech,
+scored "speech but awkward" with no defect at all, in a voice the listener
+described as an English-speaking man reading Korean text. A thousand steps of
+linguistic adaptation later the same path is not speech and is the most
+smeared track on the page. Both 1,500-step paths also hand their pitch to the
+comb, tracked at 93.75 Hz on 34 and 39 of 40 sentences, while every render
+scored as speech tracks near the speaker's own 360 Hz. Pitch lock is not
+necessary for a render to fail, but nothing that locked has passed.
 
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
