@@ -358,17 +358,17 @@ multiples of 93.75 Hz, audible even in the silence between words. The decoder
 upsamples with transposed convolutions and no anti-imaging filter, so that grid
 is where images land once anything upstream goes wrong.
 
-What went wrong was the latents. The released checkpoint carries no posterior
-encoder, so a fresh one starts every run, and while the decoder is frozen the
-adversarial gradients reach it and the flow through that frozen decoder with
-nothing anchoring where they go. The latent channel-mean RMS moved from the
-released 0.74 to 1.42 and 1.51 on the failing runs, and feeding those latents
-to the released decoder rang harder than feeding them to the adapted one, which
-is what identified the latents rather than the decoder weights. Freezing the
-decoder for the whole run does not help: an ablation that never unfroze it
-showed the comb by step 1000.
+The first investigation blamed the latents. The released checkpoint carries no
+posterior encoder, so a fresh one starts every run, the latent channel-mean RMS
+moved from the released 0.74 to 1.42 and 1.51 on the failing runs, and feeding
+those latents to the released decoder rang harder than feeding them to the
+adapted one. That reading did not survive being acted on, which is the reason
+this section reads as it does.
 
-The controls the diagnosis points at, as a starting set:
+Two of the controls below were built from it and tried on a Korean corpus, at
+10,000 steps each, against a run made without them. Neither helped, and the
+drift itself turned out not to track the artifact. Read what follows as a
+record of what was measured, not as a recipe.
 
 ```bash
 inflect-adapt train \
@@ -385,15 +385,38 @@ inflect-adapt train \
   --output runs/ko-micro
 ```
 
-These are controls, not a cure. At the time of writing they have not been shown
-to remove the artifact at scale; what has been shown is that the screens above
-detect it without a listening round, and that with every control at its default
-the loss and the schedule are unchanged. Watch `z_dc_rms` in `metrics.jsonl`
-and the grid-tone excess in `validation/step-*.json` while the run is still
-cheap to abandon. Related work elsewhere is a warning as much as a
-recommendation: a reconstruction-only decoder fine-tune is not automatically
-comb-safe, and both an over-large decoder learning rate and an over-strong
-proximal weight have been observed to fire the comb rather than damp it.
+Measured at the endpoint, over 40 held-out clips scored the same way:
+
+| Run | Grid-tone excess dB, p50 | Steady-tone score, p50 | Tracked pitch, p50 |
+| --- | --- | --- | --- |
+| the speaker's own recordings | -0.13 | 0.00 | 363.9 Hz |
+| no controls | 8.15 | 29.9 | 362.7 Hz |
+| gating, ramp, learning-rate warm-up | 8.27 | 27.1 | 376.9 Hz |
+| the above plus a reconstruction polish | 11.53 | 7.4 | 93.8 Hz |
+
+Gating changed nothing. It also raised the latent drift rather than lowering
+it, from 1.190 to 1.528 against the released decoder's own 0.737, because the
+adversarial term had been pulling the latents back toward what the
+discriminator accepts and gating removed that force for 3000 steps. The
+reconstruction polish was worse still: its median pitch collapsed onto the
+comb frequency itself, 93.76 Hz against the speaker's 364 Hz, and 31 of the 40
+clips had their pitch tracked to the grid. Its steady-tone score fell while
+every other measure rose, which is why more than one screen is reported.
+
+The reconstruction polish deserves a specific warning. Its own losses improved
+throughout: the mel term fell from 0.936 to 0.726. The comb rose at the same
+time, on the very latents the term was fitting. Reconstruction losses,
+including the multi-resolution STFT term at weight 1.0, are not sensitive to
+this artifact, so optimizing them harder is not a way out of it.
+
+What survives is the measurement. The screens detect the artifact without a
+listening round, they dated its arrival in these runs to between steps 500 and
+1000, and with every control at its default the loss and the schedule are
+unchanged. Watch `z_dc_rms` in `metrics.jsonl` and the grid-tone excess in
+`validation/step-*.json` while a run is still cheap to abandon. The cause
+remains open: the latent drift the diagnosis blamed turns out not to track the
+artifact, since runs ending at 1.190 and 1.528 produced 8.15 and 8.27 dB of
+comb.
 
 A row that carries an `audio` field is read from disk and no model is loaded,
 which is what makes the prepared `validation.jsonl` the real-audio anchor: the

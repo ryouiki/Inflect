@@ -26,7 +26,7 @@ exports.
 | Fixed-voice adaptation | Experimental quality |
 | New-language adaptation | Experimental quality |
 | Frame-grid comb screens | Implemented; thresholds from one speaker pair |
-| Adversarial gating, reconstruction polish, generator averaging | Implemented; effect on quality unproven |
+| Adversarial gating, reconstruction polish, generator averaging | Implemented; tried against the comb on one corpus and did not help |
 | PyTorch deployment export | Implemented and load-tested |
 | ONNX deployment export | Implemented; Nano parity-tested |
 | Runtime-selectable voices or languages | Not supported |
