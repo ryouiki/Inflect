@@ -92,6 +92,9 @@ Compare the recorded toolkit version, base checkpoint, dataset hash, symbols
 hash, frontend metadata, model configuration, and optimizer schema. Resume
 rejection usually means the run inputs changed.
 
+Note that this release adds option fields for its own reasons, so every
+checkpoint written before it is unresumable even at their defaults.
+
 `identity fields differ: ['options']` after an upgrade usually means the run
 inputs did not change and the toolkit did. The public options are part of the
 run identity, so a release that adds an option field makes every checkpoint
@@ -132,34 +135,41 @@ interval instead of discovered at the end.
 The cause found by investigation was drift in the latents, not in the decoder
 weights. The released checkpoint carries no posterior encoder, so a fresh one
 starts every run, and while the decoder is frozen the adversarial gradients
-still reach the posterior encoder and the flow through it with nothing
-anchoring where they go. Feeding the drifted latents to the released decoder
-rang harder than feeding them to the adapted one, which is what ruled the
-decoder out. The upsampler is what makes the drift audible on that particular
-grid, having no anti-imaging filter.
+still reach the posterior encoder through it with nothing anchoring where they
+go. They do not reach the flow, which the KL term updates instead. Feeding the drifted latents to the released decoder
+rang harder than feeding them to the adapted one. That was read at the time as
+ruling the decoder out, which it does not: the reverse case, released latents
+through the adapted decoder, was never run, so how the two interact is still
+open. The upsampler has no anti-imaging filter, which is why this particular
+grid is where the energy lands.
 
-There is no known fix. The training controls that exist for this were tried on
-one corpus at 10,000 steps each and did not work: gating the adversarial term
-left the artifact where it was, and a reconstruction-only decoder polish made
-it substantially worse, collapsing the median tracked pitch onto the comb
-frequency. The stages section of `docs/TRAINING.md` records those numbers. Use
-the screens to decide whether a checkpoint is usable, and expect to reject it.
+There is no known fix, and the search for one is mid-flight. The two training
+controls that exist for this were tried on one corpus at 10,000 steps each and
+did not work: gating the adversarial term left the artifact where it was, and a
+reconstruction-only decoder polish made it substantially worse, collapsing the
+median tracked pitch onto the comb frequency. But every one of those runs
+trained against a mel loss that floored its two sides differently, so what
+those numbers measure is those controls under a broken objective. That defect
+is fixed now and the controlled comparison has not been made yet. Use the
+screens to decide whether a checkpoint is usable, and expect to reject it.
 
-Five things were tried and measured and do not work. Gating the generator's
-adversarial term while the decoder is frozen leaves the artifact unchanged and
-raises the latent drift, because that term had been pulling the latents back.
-A reconstruction-only decoder polish raises the artifact while its own losses
-fall, so optimizing reconstruction harder is not a route out. Freezing the
-decoder for the whole run does not prevent the comb either; an ablation that
-never unfroze it showed the comb by step 1000 with 94 per cent of frames locked
-to the grid. Unfreezing earlier was worse early and no better at the end.
+Four things were tried and measured and did not work, under that caveat.
+Gating the generator's adversarial term while the decoder is frozen leaves the
+artifact unchanged and raises the latent drift, because that term had been
+pulling the latents back. A reconstruction-only decoder polish raises the
+artifact while its own reported losses fall. Freezing the decoder for the whole
+run does not prevent the comb either; an ablation that never unfroze it showed
+the comb by step 1000 with 94 per cent of frames locked to the grid. Unfreezing
+earlier was worse early and no better at the end.
 Restoring the released decoder at export time makes it louder, not quieter.
 
 The cause is therefore still open. The latent drift the investigation first
-blamed does not track the artifact: two runs ending at drift 1.190 and 1.528
-produced 8.15 and 8.27 dB of comb. Both the training path and the inference
-path ring, so it is not a mismatch between them. Treat the screens as the
-reliable part and the explanations as provisional.
+blamed does not track the artifact on its own: two runs ending at drift 1.190
+and 1.528 produced 8.15 and 8.27 dB of comb, which rules out a single scalar
+mean as the controlling variable and rules out nothing else about the latents.
+Both the training path and the inference path ring, which shows a mismatch
+between them is not the whole story rather than showing there is none. Treat
+the screens as the reliable part and the explanations as provisional.
 
 ## Output is intelligible but pronunciation is wrong
 

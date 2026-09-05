@@ -80,13 +80,16 @@ The generic public schedule has three stages:
 Stage boundaries are explicit and resumable. `--decoder-unfreeze-step none`
 keeps the decoder frozen.
 
-A frozen decoder does not mean a quiet decoder. The discriminator scores the
-audio it produces, and those gradients travel back through it into the
-posterior encoder and the flow. For the first two stages the model is therefore
-being pushed to satisfy a freshly initialized critic by moving its latents,
-with the one component that could answer properly held still. That is the
-mechanism behind the frame-rate comb described below, and the controls in this
-section exist to interrupt it. All of them are off by default.
+A frozen decoder does not mean a quiet decoder. The audio the discriminator
+scores is the decoder's rendering of the posterior encoder's latents, so those
+gradients travel back through the frozen decoder into the posterior encoder.
+They do not reach the flow, which sits on the divergence path rather than the
+audio path and is updated only through the KL term. For the first two stages
+the model is therefore being pushed to satisfy a freshly initialized critic by
+moving its latents, with the one component that could answer properly held
+still. The controls in this section were built to interrupt that, and the
+section on ringing below records what happened when they were tried. All of
+them are off by default.
 
 `--adversarial-gating` holds the generator's adversarial and feature-matching
 terms at exactly zero for as long as the decoder is frozen, then raises them to
@@ -185,7 +188,12 @@ runs/es-micro/
 
 Training checkpoints contain the public training state needed for exact
 same-run resume. Files in `exports/` are lightweight generator checkpoints,
-not complete deployment packages. With `--generator-ema-decay` set, each
+not complete deployment packages.
+
+A verified export materialises the deployment runtime into the package, so a
+fix to that runtime reaches only exports made after it. Packages exported
+earlier keep the copy they were built with and have to be exported again to
+pick one up. With `--generator-ema-decay` set, each
 `model-step-*.pth` is joined by a `model-ema-step-*.pth`, and the run ends with
 both `model.pth` and `model-ema.pth`; the averaged copy is a second candidate
 for the listening round at almost no cost.
@@ -394,6 +402,13 @@ Measured at the endpoint, over 40 held-out clips scored the same way:
 | gating, ramp, learning-rate warm-up | 8.27 | 27.1 | 376.9 Hz |
 | the above plus a reconstruction polish | 11.53 | 7.4 | 93.8 Hz |
 
+The tracked pitch column is the pitch estimator's reading, not a measurement
+of what the voice did. On the reconstruction-polish row it landed on the comb
+frequency, which is a sign the estimator followed the artifact. Nor does a
+healthy pitch and contour on the gating row establish that the adaptation
+worked: pronunciation, intelligibility and speaker similarity are not
+observable in pitch, and no transcript evaluator was enabled for these runs.
+
 Gating changed nothing. It also raised the latent drift rather than lowering
 it, from 1.190 to 1.528 against the released decoder's own 0.737, because the
 adversarial term had been pulling the latents back toward what the
@@ -403,20 +418,30 @@ comb frequency itself, 93.76 Hz against the speaker's 364 Hz, and 31 of the 40
 clips had their pitch tracked to the grid. Its steady-tone score fell while
 every other measure rose, which is why more than one screen is reported.
 
-The reconstruction polish deserves a specific warning. Its own losses improved
-throughout: the mel term fell from 0.936 to 0.726. The comb rose at the same
-time, on the very latents the term was fitting. Reconstruction losses,
-including the multi-resolution STFT term at weight 1.0, are not sensitive to
-this artifact, so optimizing them harder is not a way out of it.
+Read all of that with one thing in mind: every run in the table trained
+against a mel loss that compared its two sides differently. Silence scored
+ln(100) against itself, real speech scored 0.07 to 0.52 against itself, and the
+gradient in quiet cells paid to fill them. So the table records what those
+controls did under a broken objective, not what they do. The reconstruction
+polish in particular improved its own reported losses throughout, the mel term
+falling from 0.936 to 0.726, which is the number a floor-mismatched loss can
+produce while the comb grows. How much of the outcome that accounts for is
+unmeasured.
 
-What survives is the measurement. The screens detect the artifact without a
-listening round, they dated its arrival in these runs to between steps 500 and
-1000, and with every control at its default the loss and the schedule are
+What does survive is the measurement. The screens detect the artifact without
+a listening round, they dated its arrival in these runs to between steps 500
+and 1000, and with every control at its default the loss and the schedule are
 unchanged. Watch `z_dc_rms` in `metrics.jsonl` and the grid-tone excess in
-`validation/step-*.json` while a run is still cheap to abandon. The cause
-remains open: the latent drift the diagnosis blamed turns out not to track the
-artifact, since runs ending at 1.190 and 1.528 produced 8.15 and 8.27 dB of
-comb.
+`validation/step-*.json` while a run is still cheap to abandon.
+
+The cause is open. Two things are worth stating carefully. The latent drift
+the first investigation blamed does not track the artifact by itself: runs
+ending at 1.190 and 1.528 produced 8.15 and 8.27 dB of comb, which rules out a
+single scalar mean as the controlling variable but says nothing about the
+latents' temporal correlation, their channel covariance, or how any of that
+interacts with the decoder. And both the training path and the inference path
+ring, which shows a mismatch between them is not the whole story rather than
+showing there is no mismatch.
 
 A row that carries an `audio` field is read from disk and no model is loaded,
 which is what makes the prepared `validation.jsonl` the real-audio anchor: the
