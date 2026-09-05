@@ -151,23 +151,48 @@ median tracked pitch onto the comb frequency. But every one of those runs
 trained against a mel loss that floored its two sides differently, so what
 those numbers measure is those controls under a broken objective.
 
-That defect is fixed, and the controlled comparison has been run: unifying the
-two sides cut the broadband noise floor by 4.64 dB relative to signal and the
-comb by 3.16 dB, on 40 and 37 of 40 sentences, against a 16.4 dB gap to the
-speaker's own recordings. Fixing it helped and did not resolve the artifact.
-Use the screens to decide whether a checkpoint is usable, and expect to reject
-it.
+That defect is fixed, and the controlled comparison has been run. Against
+signal power it looked like progress: the broadband floor fell 4.64 dB and the
+comb 3.16 dB, on 40 and 37 of 40 sentences. Measured absolutely the same
+sentences say something else. On-grid power rose 0.99 dB, with the fixed arm
+lower on only 9 of 40, while total power rose 3.97 dB on 39 of 40 and the
+renders came out shorter with less silence in them. The comb did not shrink;
+the render got louder. Both arms then failed listening outright at 1,500 steps,
+scored "not a human voice" on every row, so the round is a usability rejection
+rather than a deferral. The mel fix stays in: it is a defect fix on its own
+terms, and this experiment did not resolve the artifact by itself.
+
+That episode is the reason this page keeps three readings of the comb. The
+ratio, the level and the absolute power ranked the two arms three different
+ways, and the listening test agreed with none of them about which was better.
+Screens eliminate; the listener decides.
 
 Crossing latents against decoders has since narrowed where to look. The same
 twelve sentences were rendered through three decoders with the latents held
 fixed. Latents from the released prior path came out clean through all three,
 including two decoders that had trained for 7000 steps; latents from an
 adapted run rang through all three, including the released decoder. That held
-on 12 of 12 sentences in every decoder. The decoder is therefore a secondary
-contributor at most, and the latents are where the artifact enters. Which
-property of the latents matters is not settled: removing their per-channel
-offset helps on one screen and hurts on the other, matching their scale helps
-modestly, and smoothing them in time helps on neither.
+on 12 of 12 sentences in every decoder. So adapted decoder weights are not
+necessary for the comb, and the latents are where it enters. That is not the
+same as clearing the decoder: this architecture may still be what turns those
+particular latents into a comb, and the released decoder has no anti-imaging
+filter. Which property of the latents matters is not settled either: removing
+their per-channel offset helps on one screen and hurts on the other, matching
+their scale helps modestly, and smoothing them in time helps on neither.
+
+Naming the screen matters when reporting that grid. Decoder training looks
+progressively worse on the ratio, 6.33 then 8.01 then 9.89 dB across the
+released, control and reconstruction-polish decoders, and progressively better
+on the relative level over the same three, -44.48 then -46.47 then -47.66 dB.
+Which of those is the worse sound has not been listened to.
+
+The listening round that followed reframed the problem. At 1,500 steps neither
+arm produced speech at all, only ringing at the tempo of the sentence, while a
+10,000-step control was scored as awkward but recognisable speech. What is
+failing is the formation of speech, not a residual noise on top of it. The next
+step is therefore a path diagnosis on checkpoints that already exist,
+separating reconstruction, real audio through the posterior encoder and the
+decoder, from inference, text through the prior and flow and the decoder.
 
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the

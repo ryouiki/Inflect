@@ -331,7 +331,7 @@ comes from the model config unless `--hop-length` says otherwise.
 | Observable | What it is |
 | --- | --- |
 | `grid_tone_excess_db` | On-grid power over off-grid power above 2 kHz, in dB. Zero by construction for real speech. Use it to detect the artifact, not to compare two renders: see the warning below. |
-| `grid_tone_level_db`, `off_grid_level_db` | The same two band powers against the clip's own signal power. These are what to compare across renders. |
+| `grid_tone_level_db`, `off_grid_level_db` | The same two band powers against the clip's own signal power. Compare these across renders, and read the paragraph on absolute power before concluding a comb shrank. |
 | `fold_periodic_excess_db` | The clip folded into hop-length frames, relative to the floor an uncorrelated signal would give. `fold_periodic_db` is the same measure without that correction and moves with clip length. |
 | `steady_tone_artifact_score` | Summed prominence of spectral peaks that are both steady across frames and above 1200 Hz. |
 | `f0_grid_deviation_hz` | Distance from the measured pitch to the nearest small multiple of the grid. A tracker fed a ringing render reports the comb as the voice. |
@@ -373,6 +373,25 @@ the artifact is present at all. The level is the weaker detector of the two,
 which is why both are reported: real recordings measure -52.3 dB of comb
 against a rejected run's -46.6, and those distributions touch, while the ratio
 separates the same two sets completely.
+
+**Every screen here is invariant to pure gain, so none of them says how much
+comb there is.** Both level screens divide by the clip's own signal power, and
+the excess divides one band by another. Attenuating a render by 20 dB moves its
+RMS and leaves all three untouched. The absolute mean PSD of a band is the level
+plus the clip's own `rms_dbfs`, and it is worth computing whenever two renders
+sit at different loudness. The mel A/B is the cautionary case: the comb fell
+3.16 dB against signal on 37 of 40 sentences, while the same sentences put the
+absolute on-grid power up 0.99 dB and the total power up 3.97 dB. Both readings
+are correct. The comb did not fall; the render got louder, and part of that is
+the arm's shorter renders holding less silence.
+
+Three readings, then, and they answer different questions. The ratio asks
+whether the artifact is present. The level asks what share of this render is
+comb. Level plus `rms_dbfs` asks how much comb there is as rendered, and level
+plus a fixed reference asks how much a listener hears once the page levels every
+clip to the same loudness. Levelling for listening does not change any ratio, so
+it settles none of this. Neither does any of it separate length, pause fraction
+or spectral content, which move the total power on their own.
 
 ## Ringing at multiples of the frame rate
 
