@@ -214,6 +214,19 @@ awkward stretches": the released prior already reads these Korean phonemes as
 understandable Korean in a foreign voice, and the first thousand steps of
 adaptation take that away.
 
+Walking every checkpoint the longer runs saved, with pitch lock as the
+instrument, puts a shape on that. Every run locks within the first 500 steps
+of linguistic adaptation, while its decoder is frozen; gating the adversarial
+term delays the lock by about a thousand steps and does not prevent it. The
+lock releases only where a run both trained its decoder and had the
+adversarial term on: two runs did, and both released at the first checkpoint
+after unfreezing. A run that trained its decoder on reconstruction alone
+stayed locked through seven thousand decoder steps, and a run that kept its
+decoder frozen with the adversarial term on stayed locked to the end. The comb
+excess stayed between 6 and 12 dB through all of it, released or not. Pitch
+lock is a screen, and the checkpoints where it releases have not yet been
+listened to; treat "released" as "released", not as "speech".
+
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
 artifact unchanged and raises the latent drift, because that term had been
