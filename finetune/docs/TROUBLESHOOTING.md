@@ -227,6 +227,16 @@ excess stayed between 6 and 12 dB through all of it, released or not. Pitch
 lock is a screen, and the checkpoints where it releases have not yet been
 listened to; treat "released" as "released", not as "speech".
 
+The Japanese speaker's runs close the obvious explanation. A run that unfroze
+its decoder at step 500, the moment linguistic adaptation begins, still locked
+on 40 of 40 sentences by step 1000, so a decoder that can respond does not
+prevent the collapse, and the gated run had already shown the adversarial
+term does not cause it. Every configuration tried collapses in the first 500
+steps of linguistic adaptation. What every run shared and none varied is a
+posterior encoder initialised fresh and warmed for 500 steps, a linguistic
+learning rate of half the base rate, and a KL weight of one. Those are the
+axes a follow-up has to move, one at a time.
+
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
 artifact unchanged and raises the latent drift, because that term had been
