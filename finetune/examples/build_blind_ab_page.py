@@ -14,8 +14,12 @@ What the page enforces, and why each one exists:
 * **A real-audio anchor.** Without a recording on the page there is no way to
   tell "both systems are poor" from "this material is hard". The anchor is
   forced onto every row it exists for.
-* **One level.** Every clip is scaled by pure gain to the same RMS with a peak
-  guard, so loudness cannot stand in for quality.
+* **One level for the whole page.** Every clip is scaled by pure gain to the
+  same RMS, so loudness cannot stand in for quality. The target is the loudest
+  one *every* track can reach without its own peak passing the guard, decided
+  before anything is written. Levelling clip by clip is what broke the previous
+  round: only the peaky clips came out quieter, so "same loudness" quietly
+  became "same loudness except where it mattered".
 * **Descriptive labels, never bare numbers.** A number invites arithmetic on an
   ordinal scale; a description keeps the reading anchored. The wording is fixed
   in this file and must stay byte-identical across rounds, because only
@@ -48,6 +52,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 import os
 from pathlib import Path
 
@@ -84,6 +89,10 @@ FREE_TEXT = "무엇처럼 들렸는가 · 무엇이 문제였는가 (필수)"
 
 TARGET_RMS_DBFS = -24.0
 PEAK_GUARD_DBFS = -1.0
+# A page whose loudest possible common level is this far below target is not
+# worth scoring; one pathological clip must not drag every other track down to
+# it in silence.
+LEVEL_FLOOR_DBFS = TARGET_RMS_DBFS - 6.0
 ANCHOR_NAME = "real"
 _LETTERS = "ABCDEFGH"
 
@@ -96,14 +105,61 @@ def load_ids(directory: Path) -> dict[str, Path]:
     return {path.stem: path for path in sorted(audio.glob("*.wav"))}
 
 
-def levelled(path: Path) -> tuple[np.ndarray, int]:
-    """Return the clip scaled by pure gain to the target RMS, peak guarded."""
+def _read_mono(path: Path) -> tuple[np.ndarray, int]:
     samples, sample_rate = sf.read(str(path), dtype="float32", always_2d=False)
     if samples.ndim > 1:
         samples = samples.mean(axis=1)
+    return samples, sample_rate
+
+
+def crest_factor_db(path: Path) -> float:
+    """Return peak minus RMS in dB.
+
+    Pure gain moves peak and RMS together, so this is a property of the clip
+    alone. Subtracted from the peak guard it gives the loudest RMS that clip
+    can be set to without the guard having anything to do.
+    """
+    samples, _ = _read_mono(path)
+    rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)))) if samples.size else 0.0
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    if rms <= 0.0 or peak <= 0.0:
+        raise SystemExit(f"{path} is silent, so the page cannot be levelled around it")
+    return 20 * math.log10(peak) - 20 * math.log10(rms)
+
+
+def page_target_rms_dbfs(crests: dict[str, float]) -> tuple[float, list[str]]:
+    """Return the one RMS target every track can meet, and the clips that set it.
+
+    Keys are labels used in the error message and the sealed mapping only.
+    """
+    achievable = {label: PEAK_GUARD_DBFS - crest for label, crest in crests.items()}
+    lowest = min(achievable.values())
+    target = min(TARGET_RMS_DBFS, lowest)
+    # Empty when the nominal target already clears every peak: naming a clip
+    # that did not actually hold the page back would send someone after it.
+    limited_by = (
+        sorted(label for label, value in achievable.items() if value <= lowest + 0.01)
+        if target < TARGET_RMS_DBFS
+        else []
+    )
+    if target < LEVEL_FLOOR_DBFS:
+        raise SystemExit(
+            f"one level for every track would have to be {target:.2f} dBFS, under the "
+            f"{LEVEL_FLOOR_DBFS:.1f} dBFS floor. Drop or repair: " + ", ".join(limited_by)
+        )
+    return target, limited_by
+
+
+def levelled(path: Path, target_rms_dbfs: float = TARGET_RMS_DBFS) -> tuple[np.ndarray, int]:
+    """Return the clip scaled by pure gain to the target RMS, peak guarded.
+
+    With a target from `page_target_rms_dbfs` the guard never fires, and that is
+    the point: it stays as a backstop, not as a per-clip level policy.
+    """
+    samples, sample_rate = _read_mono(path)
     rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)))) if samples.size else 0.0
     if rms > 0:
-        samples = samples * (10 ** (TARGET_RMS_DBFS / 20) / rms)
+        samples = samples * (10 ** (target_rms_dbfs / 20) / rms)
     peak = float(np.max(np.abs(samples))) if samples.size else 0.0
     ceiling = 10 ** (PEAK_GUARD_DBFS / 20)
     if peak > ceiling:
@@ -306,6 +362,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--texts", type=Path, help="JSONL with id and text, shown beside the players.")
     parser.add_argument("--rows", type=int, default=32)
     parser.add_argument("--catch-rows", type=int, default=1, help="Rows carrying one system twice.")
+    parser.add_argument(
+        "--catch-system",
+        default=None,
+        help="System to duplicate on catch rows. Default: one picked from the page seed.",
+    )
     parser.add_argument("--page-key", default=None)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -350,19 +411,53 @@ def main(argv: list[str] | None = None) -> int:
 
     catch_rows = set(row_ids[: max(0, args.catch_rows)])
     scored_names = [name for name in systems if name != ANCHOR_NAME]
-    mapping: dict[str, dict[str, str]] = {}
-    page_rows: list[dict] = []
+    if args.catch_system and args.catch_system not in scored_names:
+        raise SystemExit(
+            f"--catch-system {args.catch_system!r} is not one of: " + ", ".join(scored_names)
+        )
+    tracks_per_row = len(systems) + (1 if catch_rows and scored_names else 0)
+    if tracks_per_row > len(_LETTERS):
+        raise SystemExit(
+            f"{len(systems)} systems and a catch track need {tracks_per_row} letters; "
+            f"at most {len(_LETTERS)} tracks per row"
+        )
+
+    # Which systems appear in which row is settled first, because the page needs
+    # one level and that level depends on every clip it is about to write.
+    row_names: dict[str, list[str]] = {}
     for row in row_ids:
         names = list(systems)
         if row in catch_rows and scored_names:
-            duplicate = min(scored_names, key=lambda name: _digest(seed_bytes, f"catch\0{row}\0{name}"))
+            duplicate = args.catch_system or min(
+                scored_names, key=lambda name: _digest(seed_bytes, f"catch\0{row}\0{name}")
+            )
             names.append(f"{duplicate}#catch")
+        row_names[row] = names
+
+    crests = {
+        f"{row}/{name}": crest_factor_db(systems[name.split("#", 1)[0]][row])
+        for row, names in row_names.items()
+        for name in names
+    }
+    target_rms_dbfs, limited_by = page_target_rms_dbfs(crests)
+    # With that target the guard is mathematically idle. It is still recorded,
+    # because a fired guard would mean the target was computed from clips other
+    # than the ones written.
+    guard_fired = sorted(
+        label
+        for label, crest in crests.items()
+        if target_rms_dbfs + crest > PEAK_GUARD_DBFS + 1e-6
+    )
+
+    mapping: dict[str, dict[str, str]] = {}
+    page_rows: list[dict] = []
+    for row, names in row_names.items():
         letters = assign_letters(names, seed_bytes, row)
         destination = output / "tracks" / row
         destination.mkdir(parents=True, exist_ok=True)
         for name, letter in letters.items():
             source_name = name.split("#", 1)[0]
-            samples, sample_rate = levelled(systems[source_name][row])
+            samples, sample_rate = levelled(systems[source_name][row], target_rms_dbfs)
             sf.write(str(destination / f"{letter}.wav"), samples, sample_rate, subtype="PCM_16")
         mapping[row] = {letter: name for name, letter in letters.items()}
         page_rows.append({"id": row, "letters": list(letters.values()), "text": texts.get(row, "")})
@@ -374,7 +469,11 @@ def main(argv: list[str] | None = None) -> int:
         "language": {"question": LANGUAGE_QUESTION, "options": LANGUAGE_OPTIONS},
         "forced": {"most_natural": NATURAL_CHOICE, "most_blurred": BLUR_CHOICE},
         "free_text": FREE_TEXT,
-        "levelling": {"target_rms_dbfs": TARGET_RMS_DBFS, "peak_guard_dbfs": PEAK_GUARD_DBFS},
+        "levelling": {
+            "target_rms_dbfs": target_rms_dbfs,
+            "peak_guard_dbfs": PEAK_GUARD_DBFS,
+            "scope": "one target for every track on the page",
+        },
     }
     (output / "index.html").write_text(render_page(page_key, page_rows, axes), encoding="utf-8")
     (output / "mapping.json").write_text(
@@ -386,7 +485,17 @@ def main(argv: list[str] | None = None) -> int:
                 "anchor": str(args.anchor.resolve()) if args.anchor else None,
                 "required_ids": required,
                 "catch_rows": sorted(catch_rows),
+                "catch_system": args.catch_system,
                 "row_count": len(row_ids),
+                # Outside `axes`, which is embedded in the page: these name systems.
+                "levelling": {
+                    "target_rms_dbfs": target_rms_dbfs,
+                    "nominal_target_rms_dbfs": TARGET_RMS_DBFS,
+                    "floor_dbfs": LEVEL_FLOOR_DBFS,
+                    "peak_guard_dbfs": PEAK_GUARD_DBFS,
+                    "limited_by": limited_by,
+                    "peak_guard_fired": guard_fired,
+                },
                 "axes": axes,
                 "rows": mapping,
             },
@@ -397,6 +506,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"rows:      {len(row_ids)} ({len(required)} required, {len(catch_rows)} catch)")
     print(f"tracks:    {len(systems)} systems" + (" including a real anchor" if args.anchor else ""))
+    print(
+        f"level:     {target_rms_dbfs:.2f} dBFS RMS on every track"
+        + (f" (set by {limited_by[0]})" if target_rms_dbfs < TARGET_RMS_DBFS else "")
+    )
     print(f"page:      {output / 'index.html'}")
     print(f"mapping:   {output / 'mapping.json'} — do not open before scoring")
     if not args.anchor:

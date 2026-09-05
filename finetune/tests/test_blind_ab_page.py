@@ -61,6 +61,124 @@ def test_levelling_never_exceeds_the_peak_guard_even_when_that_lowers_rms(page_m
     assert peak_dbfs == pytest.approx(page_module.PEAK_GUARD_DBFS, abs=0.05)
 
 
+def write_peaky_wav(path: Path, crest_db: float, sample_rate: int = 24_000) -> None:
+    """Write a clip whose peak sits `crest_db` above its RMS."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    samples = np.zeros(sample_rate // 4, dtype=np.float64)
+    # A sine at full scale has a 3.01 dB crest; spacing lone spikes raises it
+    # without touching the peak, which is what a real transient does.
+    spacing = max(1, round(10 ** (crest_db / 10)))
+    samples[::spacing] = 1.0
+    sf.write(str(path), samples.astype(np.float32), sample_rate)
+
+
+def rms_dbfs(samples: np.ndarray) -> float:
+    return 20 * math.log10(float(np.sqrt(np.mean(np.square(samples.astype(np.float64))))))
+
+
+def test_a_page_puts_every_track_at_one_rms_whatever_its_crest_factor(page_module, tmp_path):
+    """Levelling clip by clip made the peaky ones quieter and nothing else."""
+    root = tmp_path / "sources"
+    for name, crest in (("flat", 6.0), ("mid", 14.0), ("peaky", 28.0)):
+        write_peaky_wav(root / name / "audio" / "0001.wav", crest)
+    output = tmp_path / "page"
+    exit_code = page_module.main(
+        [
+            "--system", f"flat={root / 'flat'}",
+            "--system", f"mid={root / 'mid'}",
+            "--system", f"peaky={root / 'peaky'}",
+            "--rows", "1",
+            "--catch-rows", "0",
+            "--output", str(output),
+        ]
+    )
+    assert exit_code == 0
+
+    levels = []
+    for track in sorted((output / "tracks" / "0001").glob("*.wav")):
+        samples, _ = sf.read(str(track), dtype="float32", always_2d=False)
+        levels.append(rms_dbfs(samples))
+        peak_dbfs = 20 * math.log10(float(np.max(np.abs(samples))))
+        assert peak_dbfs <= page_module.PEAK_GUARD_DBFS + 0.05
+    assert len(levels) == 3
+    # PCM_16 quantisation is the only thing left between them.
+    assert max(levels) - min(levels) < 0.05
+
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    levelling = mapping["levelling"]
+    assert levelling["target_rms_dbfs"] == pytest.approx(page_module.PEAK_GUARD_DBFS - 28.0, abs=0.3)
+    assert levelling["target_rms_dbfs"] < page_module.TARGET_RMS_DBFS
+    assert levelling["limited_by"] == ["0001/peaky"]
+    assert levelling["peak_guard_fired"] == []
+    assert levels[0] == pytest.approx(levelling["target_rms_dbfs"], abs=0.1)
+    # The page carries the policy; naming the loudest system on it would tell
+    # the listener which track to distrust.
+    page = (output / "index.html").read_text(encoding="utf-8")
+    assert "limited_by" not in page
+    assert "peaky" not in page
+
+
+def test_one_pathological_clip_stops_the_page_instead_of_quietly_dragging_it_down(
+    page_module, tmp_path
+):
+    root = tmp_path / "sources"
+    write_peaky_wav(root / "fine" / "audio" / "0001.wav", 8.0)
+    write_peaky_wav(root / "spiky" / "audio" / "0001.wav", 40.0)
+    output = tmp_path / "page"
+    with pytest.raises(SystemExit) as failure:
+        page_module.main(
+            [
+                "--system", f"fine={root / 'fine'}",
+                "--system", f"spiky={root / 'spiky'}",
+                "--rows", "1",
+                "--catch-rows", "0",
+                "--output", str(output),
+            ]
+        )
+    message = str(failure.value)
+    assert "0001/spiky" in message, "the operator has to be told which clip to look at"
+    assert f"{page_module.LEVEL_FLOOR_DBFS:.1f}" in message
+    assert not (output / "index.html").exists()
+
+
+def test_the_catch_track_can_be_pinned_to_a_named_system(page_module, tmp_path):
+    root = tmp_path / "sources"
+    for name in ("early", "late"):
+        for identifier in ("0001", "0002"):
+            write_wav(root / name / "audio" / f"{identifier}.wav", 0.2)
+    output = tmp_path / "page"
+    exit_code = page_module.main(
+        [
+            "--system", f"early={root / 'early'}",
+            "--system", f"late={root / 'late'}",
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--catch-system", "late",
+            "--output", str(output),
+        ]
+    )
+    assert exit_code == 0
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["catch_system"] == "late"
+    for row, letters in mapping["rows"].items():
+        assert sorted(letters.values()) == ["early", "late", "late#catch"], row
+        pair = [letter for letter, name in letters.items() if name.startswith("late")]
+        first, second = (
+            (output / "tracks" / row / f"{letter}.wav").read_bytes() for letter in pair
+        )
+        assert first == second, "a catch pair that is not byte-identical measures nothing"
+
+    with pytest.raises(SystemExit, match="not one of"):
+        page_module.main(
+            [
+                "--system", f"early={root / 'early'}",
+                "--rows", "1",
+                "--catch-system", "missing",
+                "--output", str(tmp_path / "other"),
+            ]
+        )
+
+
 def test_letters_are_unique_per_row_and_reshuffled_between_rows(page_module):
     names = ["one", "two", "three", "real"]
     seed = b"\x01" * 32
