@@ -202,7 +202,7 @@ def assign_letters(names: list[str], seed_bytes: bytes, row: str) -> dict[str, s
     return {name: _LETTERS[index] for index, name in enumerate(order)}
 
 
-def render_page(page_key: str, rows: list[dict], axes: dict) -> str:
+def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> str:
     """Return the standalone HTML page."""
     blocks: list[str] = []
     for row in rows:
@@ -285,6 +285,7 @@ def render_page(page_key: str, rows: list[dict], axes: dict) -> str:
  귀속은 <code>mapping.json</code>에만 있고, 채점이 끝나기 전에는 열지 않는다.
  모든 트랙은 같은 RMS로 순수 게인 정렬됐다. 절대 점수는 <b>라운드 사이에 비교하지 않는다</b>;
  이 페이지 안의 대비만 읽는다. 자유기술은 필수다.
+ {html.escape(note) if note else ''}
 </p>
 {''.join(blocks)}
 <div class="bar">
@@ -368,6 +369,11 @@ def main(argv: list[str] | None = None) -> int:
         help="System to duplicate on catch rows. Default: one picked from the page seed.",
     )
     parser.add_argument("--page-key", default=None)
+    parser.add_argument(
+        "--note",
+        default="",
+        help="One extra sentence for this round's listener. The fixed wording is never changed.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -475,7 +481,9 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "one target for every track on the page",
         },
     }
-    (output / "index.html").write_text(render_page(page_key, page_rows, axes), encoding="utf-8")
+    (output / "index.html").write_text(
+        render_page(page_key, page_rows, axes, args.note), encoding="utf-8"
+    )
     (output / "mapping.json").write_text(
         json.dumps(
             {
@@ -486,6 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                 "required_ids": required,
                 "catch_rows": sorted(catch_rows),
                 "catch_system": args.catch_system,
+                "note": args.note,
                 "row_count": len(row_ids),
                 # Outside `axes`, which is embedded in the page: these name systems.
                 "levelling": {

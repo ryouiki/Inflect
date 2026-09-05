@@ -179,6 +179,30 @@ def test_the_catch_track_can_be_pinned_to_a_named_system(page_module, tmp_path):
         )
 
 
+def test_a_round_note_reaches_the_listener_without_touching_the_fixed_wording(page_module, tmp_path):
+    """A round can ask one extra thing; the scale wording stays byte-identical."""
+    root = tmp_path / "sources"
+    for name in ("one", "two"):
+        write_wav(root / name / "audio" / "0001.wav", 0.2)
+    output = tmp_path / "page"
+    note = "말소리인지, 언어인지, 알아들을 수 있는지를 구분해 적어 주십시오."
+    assert page_module.main(
+        [
+            "--system", f"one={root / 'one'}",
+            "--system", f"two={root / 'two'}",
+            "--rows", "1",
+            "--catch-rows", "0",
+            "--note", note,
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    assert note in page
+    for option in page_module.QUALITY_AXIS["options"]:
+        assert option in page
+    assert json.loads((output / "mapping.json").read_text(encoding="utf-8"))["note"] == note
+
+
 def test_letters_are_unique_per_row_and_reshuffled_between_rows(page_module):
     names = ["one", "two", "three", "real"]
     seed = b"\x01" * 32
