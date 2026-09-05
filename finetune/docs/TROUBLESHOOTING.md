@@ -149,9 +149,25 @@ did not work: gating the adversarial term left the artifact where it was, and a
 reconstruction-only decoder polish made it substantially worse, collapsing the
 median tracked pitch onto the comb frequency. But every one of those runs
 trained against a mel loss that floored its two sides differently, so what
-those numbers measure is those controls under a broken objective. That defect
-is fixed now and the controlled comparison has not been made yet. Use the
-screens to decide whether a checkpoint is usable, and expect to reject it.
+those numbers measure is those controls under a broken objective.
+
+That defect is fixed, and the controlled comparison has been run: unifying the
+two sides cut the broadband noise floor by 4.64 dB relative to signal and the
+comb by 3.16 dB, on 40 and 37 of 40 sentences, against a 16.4 dB gap to the
+speaker's own recordings. Fixing it helped and did not resolve the artifact.
+Use the screens to decide whether a checkpoint is usable, and expect to reject
+it.
+
+Crossing latents against decoders has since narrowed where to look. The same
+twelve sentences were rendered through three decoders with the latents held
+fixed. Latents from the released prior path came out clean through all three,
+including two decoders that had trained for 7000 steps; latents from an
+adapted run rang through all three, including the released decoder. That held
+on 12 of 12 sentences in every decoder. The decoder is therefore a secondary
+contributor at most, and the latents are where the artifact enters. Which
+property of the latents matters is not settled: removing their per-channel
+offset helps on one screen and hurts on the other, matching their scale helps
+modestly, and smoothing them in time helps on neither.
 
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the

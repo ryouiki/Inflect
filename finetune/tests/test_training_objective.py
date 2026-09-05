@@ -781,13 +781,48 @@ def target_mel(waveform: torch.Tensor, reference) -> torch.Tensor:
     return _mel_from_spec(spectrogram(waveform, config)[None], reference)
 
 
-def mel_l1(target: torch.Tensor, generated: torch.Tensor, **kwargs) -> float:
-    reference = bundle()
-    return float(
-        torch.nn.functional.l1_loss(
-            target_mel(target, reference).float(),
-            _mel_from_waveform(generated[None], reference, **kwargs).float(),
+def legacy_generated_mel(waveform: torch.Tensor, reference) -> torch.Tensor:
+    """The generated side as it was computed before the floors were unified.
+
+    It clamped the magnitude at 1e-5 where the target adds 1e-6 in the power
+    domain and takes a root, putting its floor at 1e-3. The formula lives here
+    rather than behind a production flag so the shipped code has one path, and
+    so the tests can still show what the difference was worth.
+    """
+
+    data = reference.config["data"]
+    n_fft, hop = int(data["filter_length"]), int(data["hop_length"])
+    win = int(data["win_length"])
+    padding = (n_fft - hop) // 2
+    padded = torch.nn.functional.pad(
+        waveform[None], (padding, padding), mode="reflect"
+    ).squeeze(1)
+    window = torch.hann_window(win, device=padded.device, dtype=padded.dtype)
+    spectrum = (
+        torch.stft(
+            padded,
+            n_fft=n_fft,
+            hop_length=hop,
+            win_length=win,
+            window=window,
+            center=False,
+            return_complex=True,
         )
+        .abs()
+        .clamp_min(1.0e-5)
+    )
+    return _mel_from_spec(spectrum, reference)
+
+
+def mel_l1(target: torch.Tensor, generated: torch.Tensor, *, legacy: bool = False) -> float:
+    reference = bundle()
+    produced = (
+        legacy_generated_mel(generated, reference)
+        if legacy
+        else _mel_from_waveform(generated[None], reference)
+    )
+    return float(
+        torch.nn.functional.l1_loss(target_mel(target, reference).float(), produced.float())
     )
 
 
@@ -808,16 +843,16 @@ def test_the_mel_loss_is_zero_for_identical_waveforms(signal: torch.Tensor) -> N
 
 
 def test_the_legacy_floor_scores_identical_waveforms_as_different() -> None:
-    """What the failed runs trained against, kept only to make the two comparable.
+    """What every failed run trained against, kept here as a historical record.
 
     Silence lands on ln(100) exactly, because that is the ratio of the two
     floors and it survives the shared bank and the shared logarithm.
     """
 
     silence = torch.zeros(SAMPLE_RATE)
-    assert mel_l1(silence, silence, legacy_floor=True) == pytest.approx(math.log(100.0), abs=1e-5)
+    assert mel_l1(silence, silence, legacy=True) == pytest.approx(math.log(100.0), abs=1e-5)
     tone = 0.1 * torch.sin(2 * torch.pi * 220.0 * torch.arange(SAMPLE_RATE) / SAMPLE_RATE)
-    assert mel_l1(tone, tone, legacy_floor=True) > 2.0
+    assert mel_l1(tone, tone, legacy=True) > 2.0
 
 
 def test_the_mel_loss_rises_with_injected_noise_instead_of_falling() -> None:
@@ -833,7 +868,7 @@ def test_the_mel_loss_rises_with_injected_noise_instead_of_falling() -> None:
     unit = torch.randn(SAMPLE_RATE)
     levels = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
     unified = [mel_l1(silence, level * unit) for level in levels]
-    legacy = [mel_l1(silence, level * unit, legacy_floor=True) for level in levels]
+    legacy = [mel_l1(silence, level * unit, legacy=True) for level in levels]
 
     assert unified[0] == 0.0
     assert unified == sorted(unified)
@@ -852,18 +887,23 @@ def test_the_mel_gradient_points_away_from_noise() -> None:
     silence = torch.zeros(SAMPLE_RATE)
     unit = torch.randn(SAMPLE_RATE)
 
-    def slope(**kwargs) -> float:
+    def slope(*, legacy: bool) -> float:
         amplitude = torch.tensor(1e-6, requires_grad=True)
         reference = bundle()
+        signal = (amplitude * unit)[None]
+        produced = (
+            legacy_generated_mel(signal, reference)
+            if legacy
+            else _mel_from_waveform(signal, reference)
+        )
         loss = torch.nn.functional.l1_loss(
-            target_mel(silence, reference).float(),
-            _mel_from_waveform((amplitude * unit)[None], reference, **kwargs).float(),
+            target_mel(silence, reference).float(), produced.float()
         )
         loss.backward()
         return float(amplitude.grad)
 
-    assert slope(legacy_floor=True) < 0.0
-    assert slope() > 0.0
+    assert slope(legacy=True) < 0.0
+    assert slope(legacy=False) > 0.0
 
 
 def test_the_shared_magnitude_spectrogram_is_the_dataset_transform() -> None:

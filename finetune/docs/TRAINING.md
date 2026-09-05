@@ -440,8 +440,17 @@ gradient in quiet cells paid to fill them. So the table records what those
 controls did under a broken objective, not what they do. The reconstruction
 polish in particular improved its own reported losses throughout, the mel term
 falling from 0.936 to 0.726, which is the number a floor-mismatched loss can
-produce while the comb grows. How much of the outcome that accounts for is
-unmeasured.
+produce while the comb grows.
+
+Unifying the two sides and running 1500 steps against an otherwise identical
+arm has since measured what that was worth. The broadband noise floor fell by
+4.64 dB relative to signal, on 40 of 40 held-out sentences, which is the
+direct confirmation of what the inverted gradient in quiet cells was doing.
+The comb itself fell by 3.16 dB on 37 of 40, against a 16.4 dB gap to the
+speaker's own recordings. So the defect was real and fixing it helped, and
+**this early experiment did not resolve the ringing by itself**. Whether it is
+a dominant cause cannot be settled by 1500 steps on one seed with no listening
+round, and that question is still open.
 
 What does survive is the measurement. The screens detect the artifact without
 a listening round, they dated its arrival in these runs to between steps 500
