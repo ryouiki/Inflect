@@ -252,6 +252,16 @@ def _add_train(subparsers: Any) -> None:
         metavar="DECAY",
         help="Keep an averaged copy of the generator; 0 disables it.",
     )
+    parser.add_argument(
+        "--mel-loss-legacy-floor",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help=(
+            "Diagnostic only, scheduled for removal. Floor the generated side "
+            "of the mel loss a hundred times lower than the target side, as "
+            "earlier runs did, so the two objectives can be compared."
+        ),
+    )
     parser.set_defaults(handler=_run_train)
 
 
@@ -443,6 +453,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "decoder_freeze_upsamplers",
         "posterior_init",
         "generator_ema_decay",
+        "mel_loss_legacy_floor",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}

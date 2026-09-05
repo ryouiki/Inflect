@@ -38,7 +38,12 @@ from .modeling import (
     resolve_base_model,
 )
 from .presets import available_presets, load_packaged_preset
-from .training_data import AudioConfig, PreparedTTSDataset, create_dataloader
+from .training_data import (
+    AudioConfig,
+    PreparedTTSDataset,
+    create_dataloader,
+    magnitude_spectrogram,
+)
 
 
 LOGGER = logging.getLogger("inflect_finetune")
@@ -110,6 +115,11 @@ class TrainingOptions:
     decoder_freeze_upsamplers: bool = False
     posterior_init: str = "fresh"
     generator_ema_decay: float = 0.0
+    # Diagnostic only, and scheduled for removal. The generated side of the mel
+    # loss used to floor magnitudes a hundred times lower than the target side,
+    # so identical waveforms scored ln(100) and quiet cells were paid to fill
+    # with noise. This reproduces that objective for a controlled comparison.
+    mel_loss_legacy_floor: bool = False
 
     @classmethod
     def from_preset(
@@ -730,27 +740,42 @@ def _mel_from_spec(spec: torch.Tensor, bundle: ModelBundle) -> torch.Tensor:
         return torch.log(torch.matmul(bank, value).clamp_min(1.0e-5))
 
 
-def _mel_from_waveform(waveform: torch.Tensor, bundle: ModelBundle) -> torch.Tensor:
+def _mel_from_waveform(
+    waveform: torch.Tensor, bundle: ModelBundle, *, legacy_floor: bool = False
+) -> torch.Tensor:
+    """Mel of a generated waveform, through the same transform as the target.
+
+    Autocast is disabled inside because a half-precision window makes the
+    transform return complex32, which costs more accuracy than the artifacts
+    the loss is meant to charge for.
+    """
+
     data = bundle.config["data"]
     n_fft = int(data["filter_length"])
     hop = int(data["hop_length"])
     win = int(data["win_length"])
-    padding = (n_fft - hop) // 2
     with torch.autocast(device_type=waveform.device.type, enabled=False):
         signal = waveform.float()
-        padded = F.pad(signal.unsqueeze(1), (padding, padding), mode="reflect").squeeze(1)
-        # A half-precision window makes this transform return complex32, which
-        # costs more accuracy than the artifacts the loss is meant to charge for.
-        window = torch.hann_window(win, device=padded.device, dtype=padded.dtype)
-        spectrum = torch.stft(
-            padded,
-            n_fft=n_fft,
-            hop_length=hop,
-            win_length=win,
-            window=window,
-            center=False,
-            return_complex=True,
-        ).abs().clamp_min(1.0e-5)
+        if legacy_floor:
+            # Diagnostic only. Reproduces the asymmetric floor the earlier runs
+            # trained under, so both objectives can be compared from one
+            # binary. Removed once that comparison is finished.
+            padding = (n_fft - hop) // 2
+            padded = F.pad(signal.unsqueeze(1), (padding, padding), mode="reflect").squeeze(1)
+            window = torch.hann_window(win, device=padded.device, dtype=padded.dtype)
+            spectrum = torch.stft(
+                padded,
+                n_fft=n_fft,
+                hop_length=hop,
+                win_length=win,
+                window=window,
+                center=False,
+                return_complex=True,
+            ).abs().clamp_min(1.0e-5)
+        else:
+            spectrum = magnitude_spectrogram(
+                signal, n_fft=n_fft, hop_length=hop, win_length=win
+            )
         return _mel_from_spec(spectrum, bundle)
 
 
@@ -1165,7 +1190,9 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     ids_slice,
                     int(bundle.config["train"]["segment_size"]) // audio.hop_length,
                 )
-                generated_mel = _mel_from_waveform(generated.squeeze(1), bundle)
+                generated_mel = _mel_from_waveform(
+                    generated.squeeze(1), bundle, legacy_floor=options.mel_loss_legacy_floor
+                )
                 loss_mel = F.l1_loss(target_mel.float(), generated_mel.float())
                 loss_duration = duration.float().sum()
                 loss_kl = _kl_loss(z_p, logs_q, m_p, logs_p, z_mask)

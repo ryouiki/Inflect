@@ -42,6 +42,12 @@ from inflect_finetune.training import (
     _scalar,
     _scaled_decoder_lr,
 )
+from inflect_finetune.training_data import (
+    MAGNITUDE_FLOOR_POWER,
+    AudioConfig,
+    magnitude_spectrogram,
+    spectrogram,
+)
 
 SAMPLE_RATE = 24_000
 HOP_LENGTH = 256
@@ -752,3 +758,133 @@ def test_scalar_maps_none_to_none_and_a_tensor_to_a_float() -> None:
     value = _scalar(torch.tensor(0.5))
     assert value == 0.5
     assert isinstance(value, float)
+
+
+# The reconstruction loss compares a target spectrogram the dataset produced
+# against a spectrogram of the generated waveform. Those two were computed by
+# different code with different magnitude floors, 1e-3 against 1e-5, so two
+# identical waveforms scored ln(100) and the gradient in every quiet cell paid
+# for filling it with noise. These tests pin the invariant whose absence let
+# that survive from the toolkit's first commit.
+
+
+def target_mel(waveform: torch.Tensor, reference) -> torch.Tensor:
+    """The target side, through the dataset's own transform."""
+
+    config = AudioConfig(
+        sampling_rate=SAMPLE_RATE,
+        filter_length=MEL_DATA["filter_length"],
+        hop_length=HOP_LENGTH,
+        win_length=MEL_DATA["win_length"],
+        add_blank=True,
+    )
+    return _mel_from_spec(spectrogram(waveform, config)[None], reference)
+
+
+def mel_l1(target: torch.Tensor, generated: torch.Tensor, **kwargs) -> float:
+    reference = bundle()
+    return float(
+        torch.nn.functional.l1_loss(
+            target_mel(target, reference).float(),
+            _mel_from_waveform(generated[None], reference, **kwargs).float(),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "signal",
+    [
+        torch.zeros(SAMPLE_RATE),
+        0.1 * torch.sin(2 * torch.pi * 220.0 * torch.arange(SAMPLE_RATE) / SAMPLE_RATE),
+        0.001 * torch.sin(2 * torch.pi * 220.0 * torch.arange(SAMPLE_RATE) / SAMPLE_RATE),
+        noise(seconds=1.0)[0],
+    ],
+    ids=["silence", "loud-tone", "quiet-tone", "noise"],
+)
+def test_the_mel_loss_is_zero_for_identical_waveforms(signal: torch.Tensor) -> None:
+    """The invariant whose absence hid a ln(100) bias for the toolkit's whole life."""
+
+    assert mel_l1(signal, signal) == 0.0
+
+
+def test_the_legacy_floor_scores_identical_waveforms_as_different() -> None:
+    """What the failed runs trained against, kept only to make the two comparable.
+
+    Silence lands on ln(100) exactly, because that is the ratio of the two
+    floors and it survives the shared bank and the shared logarithm.
+    """
+
+    silence = torch.zeros(SAMPLE_RATE)
+    assert mel_l1(silence, silence, legacy_floor=True) == pytest.approx(math.log(100.0), abs=1e-5)
+    tone = 0.1 * torch.sin(2 * torch.pi * 220.0 * torch.arange(SAMPLE_RATE) / SAMPLE_RATE)
+    assert mel_l1(tone, tone, legacy_floor=True) > 2.0
+
+
+def test_the_mel_loss_rises_with_injected_noise_instead_of_falling() -> None:
+    """Against a silent target the legacy floor has a minimum away from zero.
+
+    Measured: 4.605 at no noise, falling to 0.543 at 1e-4 RMS. The unified
+    transform is monotone from zero, which is what a reconstruction loss has
+    to be for the thing it reconstructs to be the optimum.
+    """
+
+    torch.manual_seed(0)
+    silence = torch.zeros(SAMPLE_RATE)
+    unit = torch.randn(SAMPLE_RATE)
+    levels = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
+    unified = [mel_l1(silence, level * unit) for level in levels]
+    legacy = [mel_l1(silence, level * unit, legacy_floor=True) for level in levels]
+
+    assert unified[0] == 0.0
+    assert unified == sorted(unified)
+    # The legacy objective prefers a noise floor to silence.
+    assert min(legacy) < legacy[0]
+    assert legacy[legacy.index(min(legacy))] < 1.0
+
+
+def test_the_mel_gradient_points_away_from_noise() -> None:
+    """The sign of the gradient is the part that steers training.
+
+    Under the legacy floor a quiet existing noise is paid to grow.
+    """
+
+    torch.manual_seed(0)
+    silence = torch.zeros(SAMPLE_RATE)
+    unit = torch.randn(SAMPLE_RATE)
+
+    def slope(**kwargs) -> float:
+        amplitude = torch.tensor(1e-6, requires_grad=True)
+        reference = bundle()
+        loss = torch.nn.functional.l1_loss(
+            target_mel(silence, reference).float(),
+            _mel_from_waveform((amplitude * unit)[None], reference, **kwargs).float(),
+        )
+        loss.backward()
+        return float(amplitude.grad)
+
+    assert slope(legacy_floor=True) < 0.0
+    assert slope() > 0.0
+
+
+def test_the_shared_magnitude_spectrogram_is_the_dataset_transform() -> None:
+    """One formula, one place, and the batch form is the single form stacked."""
+
+    config = AudioConfig(
+        sampling_rate=SAMPLE_RATE,
+        filter_length=MEL_DATA["filter_length"],
+        hop_length=HOP_LENGTH,
+        win_length=MEL_DATA["win_length"],
+        add_blank=True,
+    )
+    sizes = {"n_fft": MEL_DATA["filter_length"], "hop_length": HOP_LENGTH,
+             "win_length": MEL_DATA["win_length"]}
+    single = noise(seconds=0.4)[0]
+    assert torch.equal(spectrogram(single, config), magnitude_spectrogram(single, **sizes))
+
+    batch = torch.cat([noise(seconds=0.4), 0.2 * noise(seconds=0.4)])
+    stacked = torch.stack([magnitude_spectrogram(row, **sizes) for row in batch])
+    assert torch.equal(magnitude_spectrogram(batch, **sizes), stacked)
+
+    # The floor is added in the power domain, so silence lands on its square root.
+    floor = magnitude_spectrogram(torch.zeros(SAMPLE_RATE), **sizes)
+    assert torch.allclose(floor, torch.full_like(floor, MAGNITUDE_FLOOR_POWER**0.5))
