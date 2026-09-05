@@ -463,6 +463,15 @@ fold −1.78), 계기를 검사한 결과 **격자 톤 초과가 이 비교에 �
 `legacy.*`·`matched.*`·`diff.*`)을 `inflect-work/evals/M-mel-ab-per-sentence.csv`에 보존했다.
 재현 지점은 태그 `mel-ab-2026-09-05`(임시 옵션이 살아 있는 마지막 커밋)이다.
 
+**청취 판정 (2026-09-06)** — `inflect-work/listening/mel-ab-20260906/`, 8행, 실물 앵커·탈락 control 포함,
+RMS 정렬, 봉인 mapping. **두 arm 모두 품질 1("사람 목소리로 들리지 않는다") 8/8, 언어 인식
+"아니오" 8/8.** 실물은 8/8 정확히 식별, catch 행 소음 바닥 0. 강제 선택 `most_blurred`만
+M-legacy 7 대 M-matched 1로 계기 방향과 일치. 자유기술 8행 전부: 1.5k arm은 **"발음 템포에 음성
+대신 ringing 기계음만"**, 10k control은 "발음도 들리지만 ringing이 심하다". **판정은 청취가
+한다는 규칙에 따라 mel A/B의 결론은 "두 arm 모두 사용 불가, 귀로 구분 불가"다.** 계기의 −3.16 dB는
+실재하되 가청 사용성으로 바뀌지 않았고, 1,500 step은 발화가 성립하는 지점이 아니었다. mel 수정을
+근거로 장기 학습을 늘릴 근거는 없다.
+
 ### 3.3 잠재 표현 × 디코더 완전 교차 (2026-09-06) — **디코더는 2차 기여자**
 
 상세: `inflect-work/evals/diag/cross-latent-decoder/FINDING.md`
