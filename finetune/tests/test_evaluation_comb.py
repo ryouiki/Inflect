@@ -15,13 +15,20 @@ like to these screens.
 from __future__ import annotations
 
 import glob
+import json
 import math
 from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
-from inflect_finetune.evaluation import _aggregate, _signal_metrics
+from inflect_finetune.evaluation import (
+    EvaluationOptions,
+    _aggregate,
+    _signal_metrics,
+    evaluate_checkpoint,
+)
 from inflect_finetune.grid_screens import (
     f0_grid_deviation_hz,
     grid_comb_metrics,
@@ -454,3 +461,109 @@ def test_real_recordings_and_ringing_renders_separate_on_the_grid_screen():
     assert abs(anchor) < 1.0
     assert render > 4.0
     assert render - anchor > 4.0
+
+
+# `evaluate` chooses between synthesizing the manifest and reading audio the
+# manifest points at, once, for the whole file. The model directory is a
+# required flag and is recorded either way, so a report that measured the
+# reference recordings looked exactly like one that measured a model. Worse, a
+# manifest mixing the two synthesizes everything and silently ignores the audio
+# fields of the rows that had them.
+
+
+def write_wav(path: Path, seconds: float = 0.4) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    samples = int(seconds * SAMPLE_RATE)
+    signal = 0.1 * np.sin(2 * np.pi * 220.0 * np.arange(samples) / SAMPLE_RATE)
+    sf.write(path, signal.astype(np.float32), SAMPLE_RATE)
+
+
+def stub_synthesizer(text=None, **kwargs):
+    samples = int(0.4 * SAMPLE_RATE)
+    return SAMPLE_RATE, 0.1 * np.sin(2 * np.pi * 330.0 * np.arange(samples) / SAMPLE_RATE)
+
+
+def provenance_report(
+    tmp_path: Path, rows: list[dict], name: str, *, synthesize: bool = True
+) -> dict:
+    """Run `evaluate` over `rows`.
+
+    Withholding the synthesizer is how the disk path is reached: a supplied
+    one is used for every row regardless of what the manifest points at, and
+    one is only loaded from a model directory when some row lacks audio.
+    """
+
+    manifest = tmp_path / f"{name}.jsonl"
+    manifest.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+    )
+    return evaluate_checkpoint(
+        EvaluationOptions(
+            model_dir=None,
+            manifest=manifest,
+            output_dir=tmp_path / f"out-{name}",
+            synthesizer=stub_synthesizer if synthesize else None,
+            save_audio=False,
+            steady_tone_screen=False,
+        )
+    )
+
+
+def mixture_check(report: dict) -> dict:
+    return next(check for check in report["checks"] if "mixture" in check["message"])
+
+
+def test_a_report_says_whether_it_synthesized_or_read_the_manifest_audio(
+    tmp_path: Path,
+) -> None:
+    write_wav(tmp_path / "audio" / "0.wav")
+    audio_rows = [{"id": "a0", "text": "hello", "audio": "audio/0.wav"}]
+    read = provenance_report(tmp_path, audio_rows, "anchor", synthesize=False)
+    assert read["source"]["mode"] == "existing_audio"
+    assert read["counts"]["synthesized"] == 0
+    assert read["counts"]["read_from_manifest_audio"] == 1
+    assert mixture_check(read)["ok"] is True
+    assert read["ok"] is True
+
+    synthesized = provenance_report(tmp_path, [{"id": "b0", "text": "hello"}], "text")
+    assert synthesized["source"]["mode"] == "synthesis"
+    assert synthesized["counts"]["synthesized"] == 1
+    assert synthesized["counts"]["read_from_manifest_audio"] == 0
+    assert mixture_check(synthesized)["ok"] is True
+    assert synthesized["ok"] is True
+
+
+def test_a_manifest_mixing_audio_and_text_rows_is_flagged(tmp_path: Path) -> None:
+    """Every row gets synthesized and the audio fields go unused.
+
+    The count has to come from the rows as they arrive, because afterwards the
+    run looks like an ordinary synthesis run, which is the whole problem.
+    """
+
+    write_wav(tmp_path / "audio" / "0.wav")
+    rows = [
+        {"id": "a0", "text": "hello", "audio": "audio/0.wav"},
+        {"id": "a1", "text": "world"},
+    ]
+    report = provenance_report(tmp_path, rows, "mixed")
+    assert report["source"]["mode"] == "synthesis"
+    assert report["counts"]["synthesized"] == 2
+    assert report["counts"]["manifest_audio_ignored"] == 1
+    check = mixture_check(report)
+    assert check["ok"] is False
+    assert check["rows_with_audio"] == 1
+
+    # The anchor workflow is documented and must keep passing, so the mixture
+    # check is reported rather than fatal.
+    assert report["ok"] is True
+
+
+def test_the_summary_discloses_the_source(tmp_path: Path) -> None:
+    write_wav(tmp_path / "audio" / "0.wav")
+    provenance_report(
+        tmp_path, [{"id": "a0", "text": "hi", "audio": "audio/0.wav"}], "anchor",
+        synthesize=False,
+    )
+    summary = (tmp_path / "out-anchor" / "evaluation_summary.txt").read_text(encoding="utf-8")
+    assert "Source: existing_audio" in summary
+    assert "read from manifest audio 1" in summary

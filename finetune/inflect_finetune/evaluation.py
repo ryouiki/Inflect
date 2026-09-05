@@ -625,11 +625,18 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
     )
     if checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"Evaluation checkpoint does not exist: {checkpoint}")
+    # The source is chosen once for the whole manifest, so it has to be counted
+    # from the rows as they arrive. A mixed manifest synthesizes every row and
+    # ignores the audio fields of the ones that had them, and no count taken
+    # afterwards could show that: it would report every row as synthesized,
+    # which is true and is exactly the thing worth knowing about.
+    rows_with_audio = sum(bool(row.get("audio")) for row in rows)
     synthesizer = options.synthesizer
-    if synthesizer is None and not all(row.get("audio") for row in rows):
+    if synthesizer is None and rows_with_audio < len(rows):
         if model_dir is None:
             raise ValueError("model_dir or a synthesizer is required for rows without audio.")
         synthesizer = _load_default_synthesizer(model_dir, options.device, checkpoint)
+    mode = "synthesis" if synthesizer is not None else "existing_audio"
     transcript_evaluator = _load_transcript_evaluator(options.transcript_evaluator)
     if options.save_audio or transcript_evaluator is not None:
         audio_dir.mkdir(parents=True, exist_ok=True)
@@ -732,12 +739,27 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
     checks = [
         status(bool(evaluated), "At least one held-out item evaluated successfully"),
         status(not failures, "All requested held-out items evaluated", failures=len(failures)),
+        status(
+            not 0 < rows_with_audio < len(rows),
+            "The manifest asks for one source rather than a mixture",
+            mode=mode,
+            rows_with_audio=rows_with_audio,
+            rows=len(rows),
+        ),
     ]
     report = make_report(
         "evaluation_report",
+        # `ok` deliberately does not consult `checks`. Measuring the reference
+        # recordings through this path is a documented workflow, and the model
+        # directory is a required flag, so a report that read the anchors is a
+        # correct report; the mixture check is there to be read, not to fail a
+        # run whose meaning was never in doubt.
         ok=bool(evaluated) and not failures,
         source={
             "manifest": manifest.name,
+            # The model directory is recorded whether or not a model was
+            # opened, so `mode` is the field that says which happened.
+            "mode": mode,
             "model_dir": model_dir.name if model_dir else None,
             "checkpoint": checkpoint.name if checkpoint else None,
             "device": options.device,
@@ -761,7 +783,14 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
             "steady_tone_flag": options.steady_tone_flag,
             "transcript_evaluator_enabled": transcript_evaluator is not None,
         },
-        counts={"requested": len(rows), "evaluated": len(evaluated), "failed": len(failures)},
+        counts={
+            "requested": len(rows),
+            "evaluated": len(evaluated),
+            "failed": len(failures),
+            "synthesized": len(evaluated) if synthesizer is not None else 0,
+            "read_from_manifest_audio": 0 if synthesizer is not None else len(evaluated),
+            "manifest_audio_ignored": rows_with_audio if synthesizer is not None else 0,
+        },
         checks=checks,
         aggregate=_aggregate(evaluated),
         items=evaluated,
@@ -772,6 +801,15 @@ def evaluate_checkpoint(options: EvaluationOptions) -> dict[str, Any]:
         "Inflect adaptation evaluation",
         f"Evaluated: {len(evaluated)}/{len(rows)}",
         f"Failures: {len(failures)}",
+        (
+            f"Source: {mode}, synthesized {report['counts']['synthesized']}, "
+            f"read from manifest audio {report['counts']['read_from_manifest_audio']}"
+            + (
+                f", manifest audio ignored {report['counts']['manifest_audio_ignored']}"
+                if report["counts"]["manifest_audio_ignored"]
+                else ""
+            )
+        ),
         f"Clips with clipping: {report['aggregate'].get('clips_with_clipping', 0)}",
         f"All-silent clips: {report['aggregate'].get('clips_all_silent', 0)}",
         (
