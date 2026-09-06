@@ -159,7 +159,9 @@ lower on only 9 of 40, while total power rose 3.97 dB on 39 of 40 and the
 renders came out shorter with less silence in them. The comb did not shrink;
 the render got louder. Both arms then failed listening outright at 1,500 steps,
 scored "not a human voice" on every row, so the round is a usability rejection
-rather than a deferral. The mel fix stays in: it is a defect fix on its own
+rather than a deferral at that checkpoint. It is not a prediction for longer
+training: the Japanese base was equally not speech at step 1,000 on either
+path and reached 4 of 5 by step 20,000. The mel fix stays in: it is a defect fix on its own
 terms, and this experiment did not resolve the artifact by itself.
 
 That episode is the reason this page keeps three readings of the comb. The
@@ -281,17 +283,21 @@ listener called it the more smeared of the two on every sentence. And the
 inherited posterior did not turn the voice runs into speech at 500, 1000 or
 2000 on two sentences of three, for all that the instrument preferred it;
 on the highest-pitched sentence alone it reached "speech but awkward" where
-the fresh posterior did not. Inheriting the posterior on its own is not
-enough here. What else the export drops, and how much longer the original run
-needed, are the open questions.
+the fresh posterior did not. Inheriting the posterior on its own was not sufficient as
+a remedy in this condition; whether the fresh initialisation contributed to the
+failure stays open, since nothing yet separates a posterior that was fine when
+handed over and degraded during warm-up from one that never handled this
+speaker's audio. How much longer the original run needed to form speech, and
+what the voice run lost and when, are the next questions; which other state to
+inherit stays a later candidate.
 
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
 original at the same offset into adaptation: every adapted track on every
 sentence scored "not a human voice", including the reconstruction at the
-adaptation boundary. So that schedule did not prevent the failure in this
-run, and the readiness manipulation itself did not take, which leaves the
-readiness hypothesis untested rather than refuted. What the run did show is
+adaptation boundary. So that schedule did not prevent the absence of speech within the observed
+early window, and the readiness manipulation itself did not take, which leaves
+the readiness hypothesis untested rather than refuted. What the run did show is
 that a fresh posterior locks its pitch onto the comb by step 1000 with the
 linguistic path and decoder both frozen, so the collapse does not need
 linguistic adaptation at all; posterior-only training reaches it. The
