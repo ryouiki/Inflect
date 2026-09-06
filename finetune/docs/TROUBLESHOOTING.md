@@ -291,6 +291,36 @@ speaker's audio. How much longer the original run needed to form speech, and
 what the voice run lost and when, are the next questions; which other state to
 inherit stays a later candidate.
 
+### When speech forms, and what adaptation removes
+
+Two questions that mattered have answers now, both from checkpoints that
+already existed.
+
+The Japanese base had formed speech by step 2,000, the earliest point
+listened to: two of three sentences on the inference path and all three on
+reconstruction. Quality then keeps climbing for the rest of the run, from a
+median naturalness of 2 at 2,000 to 5 at 20,000 as the defect grade falls
+from 2 to 1. Speech forming and quality finishing are separate milestones, so
+a run that has one has not necessarily reached the other. Note also that
+speech was there before the decoder unfroze at 3,000; naturalness does jump
+at the first checkpoint after unfreezing, but one run on one grid cannot
+attribute that.
+
+The same 2,000-step budget produced no speech in the Korean and voice runs,
+so "it just needed longer" does not by itself explain those. Data volume,
+target pitch range and starting weights all differ between those conditions
+at once, so nothing here says which of them matters.
+
+On the voice side the loss is now visible directly. The frozen base prior,
+reading the voice speaker's Japanese text before any adaptation, is speech on
+all three sentences at naturalness 3 to 4 with a barely noticeable defect.
+After two thousand steps of adaptation the same sentences score 1. Adaptation
+removed an ability that was already there. And the inherited posterior never
+had the other one: reconstructing the voice speaker's own recordings through
+it fails on two of three sentences at step zero, before a single warm-up
+step, so warm-up is not what spoiled it. The instrument had preferred step
+zero by 2.7 dB, which again did not survive listening.
+
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
 original at the same offset into adaptation: every adapted track on every
