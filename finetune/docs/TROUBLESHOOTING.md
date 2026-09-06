@@ -306,20 +306,31 @@ speech was there before the decoder unfroze at 3,000; naturalness does jump
 at the first checkpoint after unfreezing, but one run on one grid cannot
 attribute that.
 
-The same 2,000-step budget produced no speech in the Korean and voice runs,
-so "it just needed longer" does not by itself explain those. Data volume,
-target pitch range and starting weights all differ between those conditions
-at once, so nothing here says which of them matters.
+The same number of updates, 2,000, produced no speech in the Korean and
+voice runs, so the two conditions behave differently at equal step counts.
+That is as far as it goes: 2,000 steps is roughly the third epoch of the
+Japanese corpus and the fourteenth of the voice corpus, the starting weights
+differ, and so do data volume and target pitch range, so this does not rule
+out training length and does not say which of those matters. Speech forming
+is also not the same as being heard as Japanese: the language question was
+answered "yes" on all three sentences first at step 4,000, with 3,000
+answered "hard to say" on all three and nothing observed in between.
 
 On the voice side the loss is now visible directly. The frozen base prior,
 reading the voice speaker's Japanese text before any adaptation, is speech on
 all three sentences at naturalness 3 to 4 with a barely noticeable defect.
-After two thousand steps of adaptation the same sentences score 1. Adaptation
-removed an ability that was already there. And the inherited posterior never
-had the other one: reconstructing the voice speaker's own recordings through
-it fails on two of three sentences at step zero, before a single warm-up
-step, so warm-up is not what spoiled it. The instrument had preferred step
-zero by 2.7 dB, which again did not survive listening.
+That output is the base speaker's voice reading the target speaker's text;
+the target voice had not been acquired. After two thousand steps of
+adaptation the same sentences score 1. Within the observed window,
+adaptation degraded inference output that was already there; whether that is
+permanent, or recoverable with more training, has not been tested. The
+inherited posterior's reconstruction failure, separately, was present before
+warm-up began: reconstructing the voice speaker's own recordings through it
+fails on two of three sentences at step zero. Those scores sit on the floor,
+so whether warm-up made it worse still cannot be read, and reconstruction
+exercises posterior and decoder together, so it does not single out the
+posterior. The instrument had preferred step zero by 2.7 dB, which again did
+not survive listening.
 
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
