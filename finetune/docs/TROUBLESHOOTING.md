@@ -209,15 +209,20 @@ necessary for a render to fail, but nothing that locked has passed.
 
 Two more sentences, the highest-pitched one and the one with the most silence,
 gave the same picture on every track, so it is not a property of one sentence.
-On the high one the step-500 inference was even scored "intelligible with
-awkward stretches": the released prior already reads these Korean phonemes as
-understandable Korean in a foreign voice, and the first thousand steps of
-adaptation take that away.
+What was confirmed is speech with no defect on all three, scored 2, 3 and 2
+for naturalness. Whether it is Korean is a separate axis and it did not pass:
+the language answers were "hard to say", "hard to say" and "no", and the free
+text on one sentence says outright that it did not sound Korean. So the
+released prior already renders these Korean phonemes as defect-free human
+speech in a foreign voice, and the first thousand steps of adaptation take
+that away. Speech preservation and Korean intelligibility are reported apart.
 
 Walking every checkpoint the longer runs saved, with pitch lock as the
 instrument, puts a shape on that. Every run locks within the first 500 steps
-of linguistic adaptation, while its decoder is frozen; gating the adversarial
-term delays the lock by about a thousand steps and does not prevent it. The
+of linguistic adaptation, while its decoder is frozen. One gated run was
+unlocked at step 1000 and locked by 2000, but the other run under the same
+gating locked on all 40 sentences at 1000, so "gating delays the lock" is a
+single observation that did not reproduce. The
 lock releases only where a run both trained its decoder and had the
 adversarial term on: two runs did, and both released at the first checkpoint
 after unfreezing. A run that trained its decoder on reconstruction alone
@@ -230,8 +235,9 @@ listened to; treat "released" as "released", not as "speech".
 The Japanese speaker's runs close the obvious explanation. A run that unfroze
 its decoder at step 500, the moment linguistic adaptation begins, still locked
 on 40 of 40 sentences by step 1000, so a decoder that can respond does not
-prevent the collapse, and the gated run had already shown the adversarial
-term does not cause it. Every configuration tried collapses in the first 500
+prevent the collapse, and a run with the adversarial term off throughout
+locks just as early, so that term is not necessary for it either. Neither
+result excludes a contribution or an interaction. Every configuration tried collapses in the first 500
 steps of linguistic adaptation. What every run shared and none varied is a
 posterior encoder initialised fresh and warmed for 500 steps, a linguistic
 learning rate of half the base rate, and a KL weight of one. Those are the
