@@ -243,6 +243,18 @@ posterior encoder initialised fresh and warmed for 500 steps, a linguistic
 learning rate of half the base rate, and a KL weight of one. Those are the
 axes a follow-up has to move, one at a time.
 
+The first of those has been moved. A run with the posterior warmed for 1,500
+steps instead of 500, nothing else changed, was listened to against the
+original at the same offset into adaptation: every adapted track on every
+sentence scored "not a human voice", including the reconstruction at the
+adaptation boundary. So that schedule did not prevent the failure in this
+run, and the readiness manipulation itself did not take, which leaves the
+readiness hypothesis untested rather than refuted. What the run did show is
+that a fresh posterior locks its pitch onto the comb by step 1000 with the
+linguistic path and decoder both frozen, so the collapse does not need
+linguistic adaptation at all; posterior-only training reaches it. The
+500-step posterior that had not locked may simply have stopped earlier.
+
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
 artifact unchanged and raises the latent drift, because that term had been
