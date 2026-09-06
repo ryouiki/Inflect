@@ -243,6 +243,32 @@ posterior encoder initialised fresh and warmed for 500 steps, a linguistic
 learning rate of half the base rate, and a KL weight of one. Those are the
 axes a follow-up has to move, one at a time.
 
+### Why the Japanese language base did not ring
+
+The first adaptation this toolkit ran, a released model onto nine hours of a
+Japanese corpus for twenty thousand steps, does not show this failure at all.
+Measured with the same instrument on forty sentences, both its paths sit
+between 1 and 4 dB of grid excess at every checkpoint from step 1000 onward,
+and its pitch never locks to the comb: at worst five sentences of forty, at
+step 20000 two. The Korean runs at step 1000 sit at 7 to 11 dB with all forty
+locked. Whatever goes wrong is not something this architecture does whenever
+it meets a new language or a female speaker.
+
+The voice run that followed it warm-started from that base but did not inherit
+its posterior encoder: the export carries the text path and the decoder, and a
+hundred tensors of posterior are initialised fresh. That run locks partially,
+thirteen to sixteen sentences at step 1000, and works its way back out by step
+7000 while its pitch climbs toward the target speaker. Three regimes, then,
+and they differ in more than one thing at once: data volume, pitch range and
+starting point all move together, so none of this attributes a cause.
+
+Two short runs test the one axis that can be isolated. From the same export,
+byte-identical, one run starts a fresh posterior and one inherits the trained
+one; nothing else differs. On the instrument the inheriting run is
+consistently lower, and both are clean while the linguistic path is still
+frozen. What that is worth is a listening question, and the pages for it are
+sealed.
+
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
 original at the same offset into adaptation: every adapted track on every
