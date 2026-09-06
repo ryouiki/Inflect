@@ -266,8 +266,24 @@ Two short runs test the one axis that can be isolated. From the same export,
 byte-identical, one run starts a fresh posterior and one inherits the trained
 one; nothing else differs. On the instrument the inheriting run is
 consistently lower, and both are clean while the linguistic path is still
-frozen. What that is worth is a listening question, and the pages for it are
-sealed.
+frozen.
+
+Listened to, the base at 20,000 steps is speech on both paths, scored 4 of 5
+with a defect "noticeable if you listen for it", which is the level the earlier
+informal impression had described. At step 1000 it is not speech at all, on
+either path, even though the instrument had it unlocked at 205 Hz with a comb
+excess of 3 dB. That is the second time an unlocked render has failed as
+speech, so an unlocked pitch says the comb has not captured it and nothing
+more; the difference between this base and the failing runs at step 1000 is
+between an unlocked non-speech and a locked one. The replay under current code
+was not speech at 1000 either, so that comparison could not be judged; the
+listener called it the more smeared of the two on every sentence. And the
+inherited posterior did not turn the voice runs into speech at 500, 1000 or
+2000 on two sentences of three, for all that the instrument preferred it;
+on the highest-pitched sentence alone it reached "speech but awkward" where
+the fresh posterior did not. Inheriting the posterior on its own is not
+enough here. What else the export drops, and how much longer the original run
+needed, are the open questions.
 
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
