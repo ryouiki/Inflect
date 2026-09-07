@@ -352,6 +352,24 @@ so a variant that does not recover does not clear its group. Note also that
 the posterior and the discriminator kept training through this window, so
 naming a module says nothing yet about what moved it.
 
+The same restores were then listened to on the new speaker's own text, with
+the pre-adaptation and adapted renders in the same round. Naturalness there
+falls from 4 and 5 before adaptation to 1 on both sentences after it, and both
+language answers go from yes to no, so the degradation shows on the target text
+as well as on the base corpus. The flow restore gains two grades on both
+sentences, which would meet the pre-declared bar, but this page's catch pair
+disagreed: the same bytes scored 1 and 2, one grade apart and across the
+speech boundary. Scoring that sentence with the duplicate instead drops the
+gain to one grade and changes the classification, so the comparison is
+undecided and module attribution still is. The signal is the largest seen so
+far and it points the same way as the base-corpus page, where the same restore
+gained one grade on each sentence; the two pages are not added together,
+because the bar is two grades on both sentences of a single page. Restoring
+the text encoder and duration predictor gains one grade per sentence there,
+also undecided. Both restores keep the worse defect grade on this text too,
+and the listener noted that even the best restore had shifted the delivery and
+rung more than the pre-adaptation render.
+
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
 original at the same offset into adaptation: every adapted track on every
