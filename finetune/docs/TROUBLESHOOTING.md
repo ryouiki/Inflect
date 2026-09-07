@@ -332,6 +332,26 @@ exercises posterior and decoder together, so it does not single out the
 posterior. The instrument had preferred step zero by 2.7 dB, which again did
 not survive listening.
 
+The degradation is not confined to the new speaker's text. Rendering the base
+corpus's own sentences through the adapted checkpoint drops naturalness from 5
+to 2 on both sentences listened to, with the language answer going from yes to
+no, so whatever adaptation did to the inference path it did to text the model
+already read well.
+
+Restoring one module at a time narrows it a little and not enough. Putting the
+flow back to its pre-adaptation weights, with everything else left adapted,
+raises naturalness by one grade on both sentences and turns one sentence's
+language answer from no back to yes; restoring the text encoder and duration
+predictor moves one sentence by one grade and the other not at all. The
+pre-declared bar for a recovery was two grades on both sentences, so module
+attribution stays undecided — which is not the same as no effect, and the free
+text agreed that the restored variants sound better than the adapted one. All
+of them keep the worse defect grade, so none returns to the original quality.
+Restoring one group leaves a mixture of weights that never trained together,
+so a variant that does not recover does not clear its group. Note also that
+the posterior and the discriminator kept training through this window, so
+naming a module says nothing yet about what moved it.
+
 The first of those has been moved. A run with the posterior warmed for 1,500
 steps instead of 500, nothing else changed, was listened to against the
 original at the same offset into adaptation: every adapted track on every
