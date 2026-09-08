@@ -352,6 +352,18 @@ so a variant that does not recover does not clear its group. Note also that
 the posterior and the discriminator kept training through this window, so
 naming a module says nothing yet about what moved it.
 
+The flow restore was then put to the listener once more, on two sentences of
+the new speaker's text it had never been heard on, with the adapted track
+duplicated on both rows. This time the duplicate agreed exactly, all three
+axes, on both sentences, so the outcome does not hang on that reading: the
+restore gained one grade on one sentence and two on the other, and the
+pre-declared bar of two grades on both was not met. It is the fourth sentence
+in a row where restoring the flow scores higher than leaving it adapted, and
+the second page where that does not add up to a recovery. Both restores still
+carry the worse defect grade. Gains from separate pages are not summed, so
+module attribution stays undecided, and re-listening on this axis stops here;
+what remains untested is which member of the corpus-change bundle matters.
+
 The restart itself was then taken out of the question. A second run started
 from the same export with the same inherited posterior and the same schedule,
 adapting back onto the corpus the export came from, so the only flag that
