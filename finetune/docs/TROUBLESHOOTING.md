@@ -352,6 +352,23 @@ so a variant that does not recover does not clear its group. Note also that
 the posterior and the discriminator kept training through this window, so
 naming a module says nothing yet about what moved it.
 
+The restart itself was then taken out of the question. A second run started
+from the same export with the same inherited posterior and the same schedule,
+adapting back onto the corpus the export came from, so the only flag that
+differed was the dataset. Its options file matches the first run on every key,
+and both checkpoints at step 500 render all forty sentences bit-identically,
+which they must while warm-up freezes the inference path. Listened to on two
+sentences never used before, that run scores within one grade of the
+pre-adaptation output on both, keeps the same defect grade, and is still heard
+as Japanese; the run that had changed corpus scored two or more grades lower
+on both sentences in the same round, and its language answers went to no. So
+under these conditions, with the target data unchanged, no large degradation
+was observed. That is not the same as restarting being harmless: this run
+revisits data it had already converged on, and its inherited posterior was
+fitted to exactly that data, so the comparison changes several things at once
+under one flag. Which member of that bundle matters is untested, and the
+mechanism stays open.
+
 The same restores were then listened to on the new speaker's own text, with
 the pre-adaptation and adapted renders in the same round. Naturalness there
 falls from 4 and 5 before adaptation to 1 on both sentences after it, and both
