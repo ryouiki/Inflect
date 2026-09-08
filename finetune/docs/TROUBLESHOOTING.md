@@ -338,6 +338,23 @@ to 2 on both sentences listened to, with the language answer going from yes to
 no, so whatever adaptation did to the inference path it did to text the model
 already read well.
 
+Corpus size, at least on its own, is not what does it. A subset of the base
+corpus matched to the voice corpus on rows, hours and number of passes, trained
+from the same export with the same inherited posterior and the same schedule,
+came back level with the full-corpus control on both sentences listened to:
+same naturalness grade, same defect grade, still heard as the right language,
+and the duplicated track agreed exactly on both. The full-corpus control held
+up on those sentences too, so the round had a working positive reference.
+
+Read that narrowly. One flag moved four things at once — how much data, how
+many times each row is seen, which rows were drawn, and whether the model had
+seen them before. The subset is drawn from the corpus the base already trained
+on, so this says nothing about repeating a small amount of *new* material,
+which is the voice condition. What it does do is move the search: the
+remaining differences on that side are the speaker's own voice
+characteristics, the pitch range, the alignment, and whether the inherited
+posterior matches the data it now meets.
+
 Restoring one module at a time narrows it a little and not enough. Putting the
 flow back to its pre-adaptation weights, with everything else left adapted,
 raises naturalness by one grade on both sentences and turns one sentence's
