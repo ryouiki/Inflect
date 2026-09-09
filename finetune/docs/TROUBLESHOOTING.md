@@ -338,22 +338,28 @@ to 2 on both sentences listened to, with the language answer going from yes to
 no, so whatever adaptation did to the inference path it did to text the model
 already read well.
 
-Corpus size, at least on its own, is not what does it. A subset of the base
-corpus matched to the voice corpus on rows, hours and number of passes, trained
-from the same export with the same inherited posterior and the same schedule,
-came back level with the full-corpus control on both sentences listened to:
-same naturalness grade, same defect grade, still heard as the right language,
-and the duplicated track agreed exactly on both. The full-corpus control held
-up on those sentences too, so the round had a working positive reference.
+Shrinking the corpus to the voice corpus's size did not reproduce it. A subset
+of the base corpus matched to the voice corpus on rows, hours and number of
+passes, trained from the same export with the same inherited posterior and the
+same schedule, came back level with the full-corpus control on both sentences
+listened to: same naturalness grade, same defect grade, still heard as the
+right language, and the duplicated track agreed exactly on both. The
+full-corpus control held up on those sentences too, so the round had a working
+positive reference. That is where the reading stops — the size axis stays open,
+because the difference the round measured came out undecided under its own
+two-grade bar rather than at zero effect.
 
-Read that narrowly. One flag moved four things at once — how much data, how
-many times each row is seen, which rows were drawn, and whether the model had
-seen them before. The subset is drawn from the corpus the base already trained
-on, so this says nothing about repeating a small amount of *new* material,
-which is the voice condition. What it does do is move the search: the
-remaining differences on that side are the speaker's own voice
-characteristics, the pitch range, the alignment, and whether the inherited
-posterior matches the data it now meets.
+Read it narrowly for a second reason. One flag moved three things at once: how
+much data, how many times each row is seen, and which rows were drawn. What it
+did not move is whether the model had seen the rows before — both arms train on
+material the base already fit, so that term is held fixed here, and it is the
+switch to the new speaker's corpus that changes it. Separately, because the
+subset is drawn from the corpus the base already trained on, none of this
+speaks to repeating a small amount of *new* material, which is the voice
+condition; that is a limit on generalising, not a confound between the arms.
+What the round does do is move the search: the remaining differences on that
+side are the speaker's own voice characteristics, the pitch range, the
+alignment, and whether the inherited posterior matches the data it now meets.
 
 Restoring one module at a time narrows it a little and not enough. Putting the
 flow back to its pre-adaptation weights, with everything else left adapted,
