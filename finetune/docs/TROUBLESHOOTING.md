@@ -434,6 +434,32 @@ linguistic path and decoder both frozen, so the collapse does not need
 linguistic adaptation at all; posterior-only training reaches it. The
 500-step posterior that had not locked may simply have stopped earlier.
 
+The same lever was then pulled on the inherited posterior, in the other
+language, with adaptation length held equal. That is a different cell and not
+a repeat: the earlier warm-up run started its posterior from scratch on the
+Korean corpus with a different voice actress and was heard 500 updates into
+adaptation, while this one inherits the posterior from the base export, adapts
+on the Japanese voice corpus, and runs three thousand steps so that both arms
+take exactly fifteen hundred adaptation updates. Neither comparison cleared
+its pre-declared two-grade bar. The reconstruction at each arm's own
+adaptation boundary scored 2 in both arms on both sentences, and the inference
+at equal adaptation length scored 1 in both arms on both sentences; both gains
+are zero. The duplicated reconstruction track agreed exactly on all three axes
+in both rows, so neither reading hangs on the duplicate, and the baseline
+scores sat low enough, 2 and 1, that a two-grade gain was arithmetically
+available. Read that as the manipulation not clearing its own bar rather than
+as the schedule leaving the output alone: with both gains at zero, the
+hypothesis that adaptation should start from a better-prepared posterior is
+untested here, not refuted. Lengthening warm-up is also not a single variable
+— the discriminator keeps training through it, so its update count and its
+learning rate move as well, along with the data stream position and the
+optimizer state — which is why this reads as a statement about that schedule
+and not about posterior readiness. A longer warm-up still, a lower posterior
+learning rate, and gating the adversarial term during warm-up all remain
+untried. The instrument had put the two boundary reconstructions within 0.14 dB
+of each other and the loss windows within 0.01, and the listening agreed; that
+agreement is a description, not the reason for the verdict.
+
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
 artifact unchanged and raises the latent drift, because that term had been
