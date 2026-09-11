@@ -457,8 +457,30 @@ optimizer state — which is why this reads as a statement about that schedule
 and not about posterior readiness. A longer warm-up still, a lower posterior
 learning rate, and gating the adversarial term during warm-up all remain
 untried. The instrument had put the two boundary reconstructions within 0.14 dB
-of each other and the loss windows within 0.01, and the listening agreed; that
-agreement is a description, not the reason for the verdict.
+of each other, the two arms' mel windows 0.011 apart and their KL windows 0.31
+apart (mel 0.9881 / KL 3.2167 in the 500-step warm-up arm, 0.9774 / 3.5254 in
+the 1,500-step arm); the listening put both arms at the same score on both
+sentences, which is a description of where those readings landed, not the
+reason for the verdict.
+
+One thing to know before reading any two runs against each other: repeating a
+run with the same nominal settings does not reproduce the same trained weights.
+Two runs here were configured identically over their first five hundred steps —
+same seed, same corpus, and options that differ only in values which take effect
+later — and at step 500 every one of the posterior encoder's hundred tensors
+differs between them, by up to 9.4e-03, as does every one of the discriminator's
+hundred and eleven, by up to 5.0e-02, while the four hundred and ten tensors
+held frozen match bit for bit. What produces that variation has not been
+isolated: nothing here separates GPU kernel nondeterminism from mixed precision
+from anything else, and no experiment to do so is planned. Rendering is stable
+by a separate check, the one every round already runs — the same checkpoint
+re-rendered at a fixed seed comes back byte-identical. So a contrast between two
+runs carries this variation alongside whatever was manipulated, its size is
+unmeasured, and a single repeat pair would be one observation of it rather than
+a bound on it. The verdicts already recorded are arithmetic on listened scores
+and do not move. What does not follow is reading a gain of zero as evidence that
+the variation is small, and a verdict that treats a gain of one grade or less as
+its result is weakened by this rather than supported.
 
 Four things were tried and measured and did not work, under that caveat.
 Gating the generator's adversarial term while the decoder is frozen leaves the
