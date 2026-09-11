@@ -129,6 +129,30 @@ def test_gating_without_a_decoder_unfreeze_is_allowed_and_warned_about(
     assert "decoder_unfreeze_step" in warnings[0].getMessage()
 
 
+def test_warmup_gating_without_a_posterior_warmup_is_allowed_and_warned_about(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Anchored to posterior_warmup_steps, so a zero warm-up leaves it nothing to do.
+
+    Accepted rather than rejected, like the other gate against a decoder that
+    never unfreezes: the combination is harmless, and the warning is the only
+    signal that the flag on the command line changed nothing.
+    """
+
+    options = replace(
+        _options(), posterior_warmup_steps=0, warmup_adversarial_gating=True
+    )
+
+    with caplog.at_level(logging.WARNING, logger="inflect_finetune"):
+        assert _validate_options(options) is None
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert warnings[0].name == "inflect_finetune"
+    assert "warmup_adversarial_gating" in warnings[0].getMessage()
+    assert "posterior_warmup_steps" in warnings[0].getMessage()
+
+
 def test_default_options_and_the_gated_recipe_both_validate_without_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -140,6 +164,7 @@ def test_default_options_and_the_gated_recipe_both_validate_without_warning(
             replace(
                 _options(),
                 adversarial_gating=True,
+                warmup_adversarial_gating=True,
                 adversarial_ramp_steps=1_000,
                 decoder_lr_warmup_steps=300,
                 decoder_polish_mode="recon",

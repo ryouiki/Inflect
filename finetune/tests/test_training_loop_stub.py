@@ -85,10 +85,11 @@ METRIC_KEYS = frozenset(
     }
 )
 
-#: The nine settings the remedy added. A checkpoint written before they existed
+#: The ten settings the remedy added. A checkpoint written before they existed
 #: carries a run identity whose `options` map lacks exactly these.
 NEW_OPTION_FIELDS = (
     "adversarial_gating",
+    "warmup_adversarial_gating",
     "adversarial_ramp_steps",
     "decoder_lr_warmup_steps",
     "decoder_polish_mode",
@@ -346,6 +347,47 @@ def test_the_adversarial_terms_are_null_exactly_when_their_weight_is_zero(
         else:
             assert isinstance(generator, float)
             assert isinstance(feature, float)
+
+
+def test_warmup_gating_zeroes_the_generator_terms_only_while_the_posterior_warms(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """Two gated warm-up steps, then adaptation at full weight, D training throughout.
+
+    The weight logged with step N was the one used at step N-1, so a warm-up of
+    two steps puts the zeros on the first two rows and full weight on the rest.
+    """
+
+    train_adaptation(
+        make_options(
+            corpus,
+            tmp_path / "run",
+            warmup_adversarial_gating=True,
+            posterior_warmup_steps=2,
+            decoder_unfreeze_step=None,
+            max_steps=4,
+        )
+    )
+    rows = metric_rows(tmp_path / "run")
+
+    assert [row["adversarial_weight"] for row in rows] == [0.0, 0.0, 1.0, 1.0]
+    assert [row["stage"] for row in rows] == [
+        "posterior_warmup",
+        "posterior_warmup",
+        "linguistic_adaptation",
+        "linguistic_adaptation",
+    ]
+    for row in rows[:2]:
+        assert row["loss_generator"] is None
+        assert row["loss_feature"] is None
+    for row in rows[2:]:
+        assert isinstance(row["loss_generator"], float)
+        assert isinstance(row["loss_feature"], float)
+    # The point of the option: the generator stops hearing the critic, the
+    # critic keeps training.
+    for row in rows:
+        assert isinstance(row["loss_d"], float)
+        assert math.isfinite(row["loss_d"])
 
 
 def test_recon_polish_trains_only_the_decoder_with_no_discriminator_at_all(

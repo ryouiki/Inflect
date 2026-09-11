@@ -98,6 +98,24 @@ step. The discriminator trains throughout, so the gated window is its warm-up
 rather than lost time. Gating with `--decoder-unfreeze-step none` is accepted
 and warned about: it means adaptation with no adversarial term at all.
 
+`--warmup-adversarial-gating` holds the same two terms at zero for the
+posterior warm-up alone, and restores full weight the moment linguistic
+adaptation starts. Read the two gates by what they are anchored to:
+`--adversarial-gating` counts from `--decoder-unfreeze-step`, so on a schedule
+whose run ends at the unfreeze step it covers everything; this one counts from
+`--posterior-warmup-steps`, so it covers the window where only the posterior
+encoder trains and nothing else. They compose if you set both. Neither touches
+the discriminator, which trains under its own rule throughout. Setting it with
+`--posterior-warmup-steps 0` is accepted and warned about: there is no
+posterior stage for it to act on.
+
+Both gates are visible in `metrics.jsonl` without reading the options back:
+the gated rows carry `adversarial_weight` 0.0 with `loss_generator` and
+`loss_feature` null, and `loss_d` still a finite number. Note the offset when
+checking a boundary — the weight logged with step N is the one used at step
+N-1, so a warm-up of P steps gates rows 1 through P and row P+1 is the first
+adapted row.
+
 `--decoder-lr-warmup-steps` eases the decoder in after it unfreezes, scaling
 its learning rate by `min(1, (step - unfreeze) / warmup)`. The optimizer starts
 that parameter group with empty moment estimates, so without a warm-up its

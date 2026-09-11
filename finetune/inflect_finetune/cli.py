@@ -198,6 +198,17 @@ def _add_train(subparsers: Any) -> None:
         ),
     )
     parser.add_argument(
+        "--warmup-adversarial-gating",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help=(
+            "Hold the generator's adversarial and feature-matching terms at "
+            "zero for the posterior warm-up only, restoring full weight when "
+            "linguistic adaptation starts. Anchored to --posterior-warmup-steps, "
+            "unlike --adversarial-gating; the discriminator keeps training."
+        ),
+    )
+    parser.add_argument(
         "--adversarial-ramp-steps",
         type=_non_negative_int,
         default=argparse.SUPPRESS,
@@ -435,6 +446,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         # name parses cleanly and is then silently dropped.
         "feature_loss_weight",
         "adversarial_gating",
+        "warmup_adversarial_gating",
         "adversarial_ramp_steps",
         "decoder_lr_warmup_steps",
         "decoder_polish_mode",

@@ -280,6 +280,8 @@ _NEW_TRAIN_FLAGS = (
     ("--feature-loss-weight", "0.5", "feature_loss_weight", 0.5),
     ("--adversarial-gating", None, "adversarial_gating", True),
     ("--no-adversarial-gating", None, "adversarial_gating", False),
+    ("--warmup-adversarial-gating", None, "warmup_adversarial_gating", True),
+    ("--no-warmup-adversarial-gating", None, "warmup_adversarial_gating", False),
     ("--adversarial-ramp-steps", "250", "adversarial_ramp_steps", 250),
     ("--decoder-lr-warmup-steps", "300", "decoder_lr_warmup_steps", 300),
     ("--decoder-polish-mode", "recon", "decoder_polish_mode", "recon"),

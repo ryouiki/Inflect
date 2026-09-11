@@ -251,6 +251,48 @@ def test_the_default_options_leave_the_adversarial_weight_at_one_in_every_stage(
     assert _adversarial_weight(options(), step, stage) == 1.0
 
 
+@pytest.mark.parametrize("step", [0, 1, 1_499, 1_500, 2_999, 3_000])
+@pytest.mark.parametrize(
+    ("stage", "weight"),
+    [(STAGE_POSTERIOR, 0.0), (STAGE_ADAPT, 1.0), (STAGE_DECODER, 1.0)],
+)
+def test_warmup_gating_drops_the_adversarial_terms_in_the_posterior_stage_only(
+    stage, weight, step
+) -> None:
+    """The posterior warms without a critic; adaptation gets the full term back.
+
+    The stage decides, not the step: the caller derives the stage from
+    posterior_warmup_steps, so the weight cannot drift out of step with the
+    schedule the way a second step threshold here would.
+    """
+
+    settings = options(warmup_adversarial_gating=True, posterior_warmup_steps=1_500)
+    assert _adversarial_weight(settings, step, stage) == weight
+
+
+@pytest.mark.parametrize(
+    ("step", "stage", "weight"),
+    [
+        (0, STAGE_POSTERIOR, 0.0),
+        (1_500, STAGE_ADAPT, 0.0),
+        (2_999, STAGE_ADAPT, 0.0),
+        (3_500, STAGE_DECODER, 0.5),
+        (4_000, STAGE_DECODER, 1.0),
+    ],
+)
+def test_the_two_gates_compose_rather_than_conflict(step, stage, weight) -> None:
+    """Warm-up gating covers the posterior stage; the older gate covers the rest."""
+
+    settings = options(
+        warmup_adversarial_gating=True,
+        adversarial_gating=True,
+        posterior_warmup_steps=1_500,
+        decoder_unfreeze_step=3_000,
+        adversarial_ramp_steps=1_000,
+    )
+    assert _adversarial_weight(settings, step, stage) == weight
+
+
 @pytest.mark.parametrize(
     ("stage", "weight"),
     [(STAGE_POSTERIOR, 1.0), (STAGE_ADAPT, 1.0), (STAGE_DECODER, 0.0)],

@@ -107,6 +107,7 @@ class TrainingOptions:
     # multiples of the frame rate; docs/TROUBLESHOOTING.md explains when to
     # reach for which.
     adversarial_gating: bool = False
+    warmup_adversarial_gating: bool = False
     adversarial_ramp_steps: int = 1_000
     decoder_lr_warmup_steps: int = 0
     decoder_polish_mode: str = "adversarial"
@@ -248,6 +249,11 @@ def _validate_options(options: TrainingOptions) -> None:
             "discriminator without ever using it; the generator never sees an "
             "adversarial gradient."
         )
+    if options.warmup_adversarial_gating and options.posterior_warmup_steps == 0:
+        LOGGER.warning(
+            "warmup_adversarial_gating is anchored to posterior_warmup_steps, "
+            "which is zero; there is no posterior stage for it to act on."
+        )
 
 
 def _device(name: str) -> torch.device:
@@ -371,9 +377,19 @@ def _adversarial_weight(options: TrainingOptions, step: int, stage: str) -> floa
     respond, then ramps it so the first real adversarial push is not a step
     change. The discriminator keeps training throughout: the gated window is
     its warm-up.
+
+    The two gates are anchored to different points and compose rather than
+    conflict. `adversarial_gating` is anchored to `decoder_unfreeze_step`, so it
+    covers the posterior warm-up and the linguistic stage as one block;
+    `warmup_adversarial_gating` is anchored to `posterior_warmup_steps` and
+    holds the terms at zero for the posterior stage alone, leaving the
+    linguistic stage at full weight. Neither touches the discriminator, which
+    trains under its own rule in both windows.
     """
 
     if stage == STAGE_DECODER and options.decoder_polish_mode == "recon":
+        return 0.0
+    if options.warmup_adversarial_gating and stage == STAGE_POSTERIOR:
         return 0.0
     if not options.adversarial_gating:
         return 1.0

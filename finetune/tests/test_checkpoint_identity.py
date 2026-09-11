@@ -289,10 +289,11 @@ class _ToyGenerator(nn.Module):
         self.enc_q = nn.Linear(2, 2)
 
 
-# The nine settings the comb remedy added to TrainingOptions, and so to the
+# The ten settings the comb remedy added to TrainingOptions, and so to the
 # public options block of every run identity.
 _NEW_OPTION_FIELDS = (
     "adversarial_gating",
+    "warmup_adversarial_gating",
     "adversarial_ramp_steps",
     "decoder_lr_warmup_steps",
     "decoder_polish_mode",
@@ -355,7 +356,7 @@ def _resume(path: Path, parts: tuple, identity: dict, **extra) -> tuple[int, int
 
 
 def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour() -> None:
-    """These nine values are part of every run's identity, and they must stay these.
+    """These ten values are part of every run's identity, and they must stay these.
 
     Each one reproduces what runs did before it existed, so a default that moves
     changes what an unchanged command line trains, silently. Pinning them here
@@ -370,6 +371,7 @@ def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour()
 
     assert set(_NEW_OPTION_FIELDS) <= payload.keys()
     assert payload["adversarial_gating"] is False
+    assert payload["warmup_adversarial_gating"] is False
     assert payload["adversarial_ramp_steps"] == 1_000
     assert payload["decoder_lr_warmup_steps"] == 0
     assert payload["decoder_polish_mode"] == "adversarial"
