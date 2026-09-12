@@ -25,7 +25,11 @@ What the page enforces, and why each one exists:
   in this file and must stay byte-identical across rounds, because only
   within-round contrasts are comparable.
 * **Mandatory free text.** Asking what the defect *sounded like* has repeatedly
-  handed over defects no pre-registered metric was watching for.
+  handed over defects no pre-registered metric was watching for. Mandatory is
+  enforced at the download: a blank field marks itself, the first click on the
+  save button refuses and says how many are blank, and only a second click with
+  no edit in between hands the file over. Two rounds had already shipped with a
+  blank answer before that existed.
 * **A forced blur attribution.** A defect-severity scale rewards a system that
   smears everything into smoothness, so each row also asks which track sounds
   most muffled or smeared.
@@ -278,6 +282,7 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
  .bar {{ position: sticky; bottom: 0; background: #fbfbfc; border-top: 1px solid #dcdfe5; padding: 12px 0; }}
  button {{ font: inherit; padding: 8px 14px; }}
  #status {{ margin-left: 12px; color: #4a5160; }}
+ .blank {{ outline: 2px solid #c0392b; outline-offset: 1px; }}
 </style>
 <h1>블라인드 청취 · {html.escape(page_key)}</h1>
 <p class="note">
@@ -314,12 +319,24 @@ const restore = () => {{
 const persist = () => {{
   try {{ localStorage.setItem(PAGE_KEY, JSON.stringify(store())); }} catch (error) {{}}
 }};
-document.addEventListener("input", persist);
-document.addEventListener("change", persist);
+// A blank is marked as it happens rather than announced after the download.
+const mark = () => {{
+  document.querySelectorAll("[data-field]").forEach(element => {{
+    element.classList.toggle("blank", !element.value);
+  }});
+}};
+// Held only in memory: a reload always re-arms, and so does any edit, so the
+// guard cannot be switched off early and left off for the rest of the page.
+let armedForBlanks = true;
+const onEdit = () => {{ persist(); mark(); armedForBlanks = true; }};
+document.addEventListener("input", onEdit);
+document.addEventListener("change", onEdit);
 restore();
+mark();
 document.getElementById("save").addEventListener("click", () => {{
   const rows = {{}};
   let missing = 0;
+  let blankAxes = 0;
   document.querySelectorAll("section.row").forEach(section => {{
     const id = section.id.replace(/^row-/, "");
     const entry = {{ tracks: {{}} }};
@@ -328,6 +345,7 @@ document.getElementById("save").addEventListener("click", () => {{
       if (letter) {{
         entry.tracks[letter] = entry.tracks[letter] || {{}};
         entry.tracks[letter][field] = element.value;
+        if (!element.value) blankAxes += 1;
       }} else {{
         entry[field] = element.value;
       }}
@@ -335,6 +353,15 @@ document.getElementById("save").addEventListener("click", () => {{
     }});
     rows[id] = entry;
   }});
+  if (missing && armedForBlanks) {{
+    mark();
+    armedForBlanks = false;
+    const first = document.querySelector(".blank");
+    if (first) first.scrollIntoView({{ block: "center" }});
+    document.getElementById("status").textContent =
+      "빈 칸 " + missing + "개(축 " + blankAxes + "개). 내려받지 않았다. 채우거나 한 번 더 누르면 내려받는다.";
+    return;
+  }}
   const verdict = {{ format: "inflect_listening_verdict_v1", page_key: PAGE_KEY, axes: AXES, unanswered: missing, rows }};
   const blob = new Blob([JSON.stringify(verdict, null, 1)], {{ type: "application/json" }});
   const link = document.createElement("a");
@@ -342,7 +369,7 @@ document.getElementById("save").addEventListener("click", () => {{
   link.download = PAGE_KEY + "-verdict.json";
   link.click();
   document.getElementById("status").textContent = missing
-    ? ("빈 항목 " + missing + "개가 있다. 그대로 내려받았다.")
+    ? ("빈 칸 " + missing + "개(축 " + blankAxes + "개)를 남긴 채 내려받았다.")
     : "모든 항목이 채워졌다.";
 }});
 </script>

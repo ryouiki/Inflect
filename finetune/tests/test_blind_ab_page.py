@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -222,6 +223,67 @@ def test_required_rows_come_first_and_a_missing_one_is_fatal(page_module):
     assert rows[0] == "z" and len(rows) == 2
     with pytest.raises(SystemExit):
         page_module.choose_rows(systems, ["absent"], 2, b"\x02" * 32)
+
+
+GUARD_HARNESS = Path(__file__).resolve().parent / "data" / "verdict_guard_check.js"
+
+
+def build_small_page(page_module, tmp_path):
+    """A minimal page, returned as the output directory."""
+
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path, "anchor", identifiers, 0.4)
+    output = tmp_path / "round"
+    exit_code = page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "1",
+            "--output", str(output),
+        ]
+    )
+    assert exit_code == 0
+    return output
+
+
+def test_the_export_refuses_the_first_click_while_a_field_is_blank(page_module, tmp_path):
+    """Two rounds lost a mandatory answer because the page downloaded anyway.
+
+    The page used to count the blanks, announce them, and hand over the file
+    regardless. The assertions below are on the built page rather than on a
+    rendered DOM; the behaviour itself is exercised by the node harness in the
+    test that follows, which is the one that fails if the guard is gutted.
+    """
+
+    page = (build_small_page(page_module, tmp_path) / "index.html").read_text(encoding="utf-8")
+    script = page.split("<script>")[1].split("</script>")[0]
+
+    assert "그대로 내려받았다" not in page, "a blank must not be reported as an accepted download"
+    assert 'classList.toggle("blank"' in script
+    assert ".blank" in page, "the marked fields need a style rule"
+    assert "armedForBlanks" in script
+    # The refusal has to sit in front of the download, not after it.
+    assert script.index("armedForBlanks") < script.index("new Blob(")
+    # Held in memory only: a reload re-arms the guard.
+    assert "localStorage" not in script.split("armedForBlanks")[1].split("\n")[0]
+
+
+@pytest.mark.skipif(not Path("/usr/bin/node").exists(), reason="node is not installed")
+def test_the_export_guard_behaves_under_node(page_module, tmp_path):
+    """Run the page's own script and watch for the download that must not happen."""
+
+    output = build_small_page(page_module, tmp_path)
+    result = subprocess.run(
+        ["/usr/bin/node", str(GUARD_HARNESS), str(output / "index.html")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "FAIL" not in result.stdout, result.stdout
 
 
 def test_page_seals_the_mapping_and_forces_the_anchor(page_module, tmp_path):
