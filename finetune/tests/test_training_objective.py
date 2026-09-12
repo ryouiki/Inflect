@@ -500,11 +500,11 @@ def test_a_segment_shorter_than_every_resolution_is_rejected_by_length() -> None
 def test_the_stft_loss_charges_more_for_a_frame_grid_comb_than_the_mel_l1_does() -> None:
     """The reason the term exists at all.
 
-    An 80-band mel averages over bands hundreds of hertz wide in the top
-    octaves, so a narrow comb there is nearly free under a mel L1. Measured
-    ratio for a -34 dB comb on 0.05 RMS noise is 3.88 (mel 0.0103, STFT
-    0.0399); pinned as an inequality at 2x because the exact ratio depends on
-    the noise floor, not on anything the remedy promises.
+    The corrected mel L1 does charge for a frame-grid comb, but this term
+    charges more for the same one. Measured for a -34 dB comb on 0.05 RMS
+    noise: mel 0.0103, STFT 0.0399, ratio 3.88; pinned as an inequality at 2x
+    because the exact ratio depends on the noise floor, not on anything the
+    remedy promises.
     """
 
     clean = noise()

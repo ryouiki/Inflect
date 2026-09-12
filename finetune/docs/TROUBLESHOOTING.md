@@ -145,11 +145,12 @@ grid is where the energy lands.
 
 There is no known fix, and the search for one is mid-flight. The two training
 controls that exist for this were tried on one corpus at 10,000 steps each and
-did not work: gating the adversarial term left the artifact where it was, and a
-reconstruction-only decoder polish made it substantially worse, collapsing the
-median tracked pitch onto the comb frequency. But every one of those runs
-trained against a mel loss that floored its two sides differently, so what
-those numbers measure is those controls under a broken objective.
+did not reduce the comb on those screens: gating the adversarial term left the
+artifact where it was, and a reconstruction-only decoder polish made it
+substantially worse, collapsing the median tracked pitch onto the comb
+frequency. But every one of those runs trained against a mel loss that floored
+its two sides differently, so what those numbers measure is those controls
+under a broken objective. None of those runs was listened to.
 
 That defect is fixed, and the controlled comparison has been run. Against
 signal power it looked like progress: the broadband floor fell 4.64 dB and the
@@ -552,15 +553,16 @@ and do not move. What does not follow is reading a gain of zero as evidence that
 the variation is small, and a verdict that treats a gain of one grade or less as
 its result is weakened by this rather than supported.
 
-Four things were tried and measured and did not work, under that caveat.
-Gating the generator's adversarial term while the decoder is frozen leaves the
-artifact unchanged and raises the latent drift, because that term had been
-pulling the latents back. A reconstruction-only decoder polish raises the
-artifact while its own reported losses fall. Freezing the decoder for the whole
-run does not prevent the comb either; an ablation that never unfroze it showed
-the comb by step 1000 with 94 per cent of frames locked to the grid. Unfreezing
-earlier was worse early and no better at the end.
-Restoring the released decoder at export time makes it louder, not quieter.
+Four things were tried and measured under that caveat, and none reduced the
+comb on those screens; none of them was listened to. Gating the generator's
+adversarial term while the decoder is frozen leaves the artifact unchanged and
+raises the latent drift, because that term had been pulling the latents back.
+A reconstruction-only decoder polish raises the artifact while its own reported
+losses fall. Freezing the decoder for the whole run did not prevent the comb in
+that run either; an ablation that never unfroze it showed the comb by step 1000
+with 94 per cent of frames locked to the grid. Unfreezing earlier was worse
+early and no better at the end. Restoring the released decoder at export time
+makes it louder, not quieter.
 
 The cause is therefore still open. The latent drift the investigation first
 blamed does not track the artifact on its own: two runs ending at drift 1.190

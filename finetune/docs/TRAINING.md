@@ -137,11 +137,14 @@ means a new chained run.
 
 `--stft-loss-weight` adds a multi-resolution linear STFT reconstruction term
 alongside the mel loss, at three resolutions with 512, 1024 and 2048-point
-transforms. An 80-band mel averages over bands hundreds of hertz wide in the
-top octaves and barely charges for a narrow comb sitting there; the 2048-point
-resolution has 11.7 Hz bins at 24 kHz and does. The term is the mean over
-resolutions, following Parallel WaveGAN, so a weight quoted for the summed
-convention is worth three times as much here.
+transforms. The corrected 80-band mel does charge for a narrow comb at the
+frame rate — it rose monotonically in the comb-injection check of 2026-09-05 —
+but on the comb injected in `tests/test_training_objective.py` the mel L1 rose
+0.0103 and this term 0.0399, about four times more. That ratio is for that
+injection condition, not a general property; the 2048-point resolution
+(11.7 Hz bins at 24 kHz) is what resolves the comb's spacing. The term is the
+mean over resolutions, following Parallel WaveGAN, so a weight quoted for the
+summed convention is worth three times as much here.
 
 `--decoder-proximal-weight` holds the decoder near the weights the run started
 from, measuring each tensor's squared drift relative to that tensor's own
@@ -480,14 +483,18 @@ falling from 0.936 to 0.726, which is the number a floor-mismatched loss can
 produce while the comb grows.
 
 Unifying the two sides and running 1500 steps against an otherwise identical
-arm has since measured what that was worth. The broadband noise floor fell by
-4.64 dB relative to signal, on 40 of 40 held-out sentences, which is the
-direct confirmation of what the inverted gradient in quiet cells was doing.
-The comb itself fell by 3.16 dB on 37 of 40, against a 16.4 dB gap to the
-speaker's own recordings. So the defect was real and fixing it helped, and
-**this early experiment did not resolve the ringing by itself**. Whether it is
-a dominant cause cannot be settled by 1500 steps on one seed with no listening
-round, and that question is still open.
+arm has since measured what that was worth, and the reading depends on the
+reference. Relative to signal, the broadband noise floor fell by 4.64 dB on
+40 of 40 held-out sentences and the comb by 3.16 dB on 37 of 40, against a
+16.4 dB gap to the speaker's own recordings. Measured absolutely, the same
+sentences put on-grid power up 0.99 dB and total power up 3.97 dB: the render
+got louder, and part of that is the fixed arm's shorter renders holding less
+silence. The absolute floor was not reported, so neither relative figure says
+the floor or the comb fell. The mel fix stays in — it is a defect fix on its
+own terms — and **this early experiment did not resolve the ringing by
+itself**. Whether the mel defect is a dominant cause cannot be settled by
+1500 steps on one seed with no listening round, and that question is still
+open.
 
 What does survive is the measurement. The screens detect the artifact without
 a listening round, they dated its arrival in these runs to between steps 500

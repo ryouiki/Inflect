@@ -56,8 +56,9 @@ POSTERIOR_INITS = ("fresh", "inherit")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
 # model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
-# resolve a comb at multiples of the frame rate that an 80-band mel averages
-# away; 512 keeps a short window for transients.
+# resolve a comb at multiples of the frame rate, which the mel L1 charges for
+# less: on the comb injected in tests/test_training_objective.py the corrected
+# mel rises 0.0103 and this term 0.0399; 512 keeps a short window for transients.
 STFT_RESOLUTIONS = ((512, 128), (1024, 256), (2048, 512))
 
 
@@ -493,14 +494,17 @@ def _multi_resolution_stft_loss(
     real: torch.Tensor,
     resolutions: Iterable[tuple[int, int]] = STFT_RESOLUTIONS,
 ) -> torch.Tensor:
-    """Linear-frequency reconstruction error the mel loss cannot see.
+    """Linear-frequency reconstruction error that charged about four times more
+    than the mel L1 for the frame-grid comb injected in
+    tests/test_training_objective.py (mel 0.0103, STFT 0.0399; a -34 dB comb
+    over 0.05 RMS noise).
 
-    An 80-band mel averages over bands that are hundreds of hertz wide in the
-    top octaves, so a narrow comb sitting there costs almost nothing under a
-    mel L1. Each resolution contributes spectral convergence plus a
-    log-magnitude L1, and the result is the mean over resolutions, following
-    Parallel WaveGAN. A weight quoted for the summed convention is worth three
-    times as much here.
+    The corrected 80-band mel does rise monotonically on that comb; this term
+    rises more per that injection, and the ratio is a property of that
+    condition, not a general one. Each resolution contributes spectral
+    convergence plus a log-magnitude L1, and the result is the mean over
+    resolutions, following Parallel WaveGAN. A weight quoted for the summed
+    convention is worth three times as much here.
 
     Autocast is disabled inside: a half-precision window makes the transform
     return complex32, and the magnitudes then carry more quantisation than the
