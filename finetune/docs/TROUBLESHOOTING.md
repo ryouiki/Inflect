@@ -491,6 +491,36 @@ phonemes that do come through sound closer to the base corpus's speaker than
 to the target -- an observation recorded as such, since voice identity is not
 an axis this page scored.
 
+Training past the decoder unfreeze was then tried on the inherited recipe,
+which no run had done. Ten thousand steps, seven thousand of them with the
+decoder training, and the same two sentences heard at the last frozen
+checkpoint, at six thousand, and at the cap. The output at the cap is speech
+on both sentences and is heard as Japanese on both: naturalness 3 and 2 with
+the language answer yes, against naturalness 1 with "hard to say" and "no" at
+the last frozen checkpoint. The duplicated track agreed exactly on all three
+axes in both rows, so none of that hangs on a single reading.
+
+It did not clear the bars. Recovery was pre-declared as naturalness 3 or
+better with the language answer yes on both sentences, and one sentence came
+in at 2. Usability adds a defect grade of 1 or better on top of that, and the
+defect grade is 2 on both sentences -- the ringing is still there, and the
+listener said so in the free text on both. The gain over the last frozen
+checkpoint is two grades on one sentence and one on the other, which is short
+of a bar that asks for two on both. So: speech and the right language on both
+sentences, and neither pre-declared threshold met. Write those as the separate
+findings they are, and do not promote the first into "usable".
+
+Two things about that run limit what it can carry. The host killed it twice
+while it was writing a checkpoint, and the loader's position is not
+checkpointed, so the data order restarted at step 6500 and again at 8000; this
+is not an uninterrupted ten thousand steps, and the discontinuities sit between
+the very checkpoints the contrasts compare. And the instrument moved in the
+same window -- the pitch lock released completely after the unfreeze while the
+comb stayed at six to nine decibels -- but the lock is measured over forty
+sentences and the naturalness over the two that were heard, so they are not
+the same set. On one of those two the lock released further between six
+thousand and the cap while the naturalness did not move at all.
+
 One thing to know before reading any two runs against each other: repeating a
 run with the same nominal settings does not reproduce the same trained weights.
 Two runs here were configured identically over their first five hundred steps —
