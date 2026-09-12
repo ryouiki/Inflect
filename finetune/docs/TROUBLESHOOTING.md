@@ -508,7 +508,10 @@ listener said so in the free text on both. The gain over the last frozen
 checkpoint is two grades on one sentence and one on the other, which is short
 of a bar that asks for two on both. So: speech and the right language on both
 sentences, and neither pre-declared threshold met. Write those as the separate
-findings they are, and do not promote the first into "usable".
+findings they are, and do not promote the first into "usable". Note also that
+those two misses are one observation and not two: the recovery bar and the
+step-3000 contrast both fail on the same score, the second sentence's final
+naturalness of 2. Had it been 3, both would have held.
 
 Two things about that run limit what it can carry. The host killed it twice
 while it was writing a checkpoint, and the loader's position is not
@@ -516,10 +519,19 @@ checkpointed, so the data order restarted at step 6500 and again at 8000; this
 is not an uninterrupted ten thousand steps, and the discontinuities sit between
 the very checkpoints the contrasts compare. And the instrument moved in the
 same window -- the pitch lock released completely after the unfreeze while the
-comb stayed at six to nine decibels -- but the lock is measured over forty
-sentences and the naturalness over the two that were heard, so they are not
-the same set. On one of those two the lock released further between six
-thousand and the cap while the naturalness did not move at all.
+comb stayed at six to nine decibels -- but the lock is an aggregate over forty
+sentences and the naturalness is two sentences that were heard. Those two were
+not locked at any of the three checkpoints on the page: their grid deviations
+run 2.7, 83 and 96 Hz, and 9.7, 34 and 48 Hz, against a criterion of 1.5. The
+aggregate releasing is a fact about the other sentences, so do not read it
+alongside these grades, and do not substitute an aggregate for a sentence.
+
+The two interruptions limit what the round can be read to show; they are not
+an account of why the audio fell short. The output at the cap missed the
+usability bar, and that observation stands on its own. What they do oblige is
+housekeeping before the next run: stop the host killing a save, and decide what
+resume should do about data order. Neither is a reason to repeat these ten
+thousand steps.
 
 One thing to know before reading any two runs against each other: repeating a
 run with the same nominal settings does not reproduce the same trained weights.
