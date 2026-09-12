@@ -534,6 +534,42 @@ housekeeping before the next run: stop the host killing a save, and decide what
 resume should do about data order. Neither is a reason to repeat these ten
 thousand steps.
 
+The multi-resolution STFT term was then tried on its own. Weight 3, on from
+step 0 in every stage as the code has it, a fresh run from the same base with
+the same schedule, and the previous run's cap checkpoint kept on the page as a
+reference so the comparison would at least be same-session and same-sentence.
+Ten thousand steps with no interruption this time, and two sentences neither
+listener nor page had seen.
+
+The recovery bar cleared: naturalness 3 with the language answer yes on both
+sentences, the duplicated track agreeing exactly on all three axes in both
+rows. Usability did not: the defect grade is 2 on both sentences again. That
+is the whole of the miss -- naturalness and language both held, so the defect
+axis is the only thing standing between this recipe and a usable rendering,
+and the defect-gain item fails on the same score rather than as a second
+finding.
+
+The part worth keeping is the negative. The defect grade came in at 2 on every
+adapted track on that page, including the reference trained without the term,
+and the naturalness grades of the two cap checkpoints were identical as well;
+the one axis where they differed was the language answer on a single sentence,
+which the round's own rule calls undecided. So the page could not tell the two
+runs' caps apart, and the recovery result is not evidence that the term did
+anything. Whether this term changes the ringing is not settled by one run pair
+whose training histories differ and whose run-to-run variation has never been
+measured. What is settled is narrower: this setting -- weight 3, every stage,
+from the base export, ten thousand steps -- is not adopted.
+
+The instruments moved while the listening did not, which is the same shape as
+the mel A/B above. The comb excess came out lower for the run with the term
+(5.58 against 6.83 decibels as a median over forty sentences, 5.67 against
+7.87 and 5.28 against 6.32 on the two sentences that were heard) and its
+steady-tone score fell to zero from 14.6 and 15.6. The defect grades are 2 and
+2 either way. Screens that separate two runs are not evidence about what a
+listener hears, and this is the first of the ringing remedies in this record
+to reach a listening verdict at all -- the earlier five were judged on screens
+alone, none of them listened to, all of them before the mel defect was fixed.
+
 One thing to know before reading any two runs against each other: repeating a
 run with the same nominal settings does not reproduce the same trained weights.
 Two runs here were configured identically over their first five hundred steps —
