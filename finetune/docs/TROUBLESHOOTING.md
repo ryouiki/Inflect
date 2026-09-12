@@ -463,6 +463,31 @@ the 1,500-step arm); the listening put both arms at the same score on both
 sentences, which is a description of where those readings landed, not the
 reason for the verdict.
 
+Taking the critic out of the warm-up did not move either question. A run
+identical to the one above except that the generator's adversarial and
+feature-matching terms are held at zero for the fifteen hundred warm-up steps,
+and restored to full weight for the fifteen hundred adaptation steps, was
+listened to against it on two fresh sentences. Neither row met the
+pre-declared bar of two grades on both sentences: the boundary reconstruction
+scored 2 against 2 on one sentence and 1 against 1 on the other, and the
+inference at equal adaptation length scored 1 against 1 on both. The
+intervention itself is visible in the log rather than inferred -- every gated
+row carries a zero weight with both generator-side terms null and a finite
+discriminator loss, and the first adapted row is back at full weight -- so
+what did not clear the bar is the schedule's effect on what the listener
+heard, not the manipulation. Read the gains per sentence rather than as one
+number: scoring the duplicated baseline instead of the original turns one
+sentence's gain from zero to one, which is still short of the bar and does not
+change the row. That duplicate is worth noting on its own: the same bytes
+scored 2 and 1 on that sentence, one grade apart and across the speech
+boundary, so whether that track counts as speech at all is undecided here.
+Seven axis cells were left blank, all on the second sentence, which is why
+nothing is said about its language axis. The listener's free text on both
+sentences was that little is voiced and the rest rings, and added that the
+phonemes that do come through sound closer to the base corpus's speaker than
+to the target -- an observation recorded as such, since voice identity is not
+an axis this page scored.
+
 One thing to know before reading any two runs against each other: repeating a
 run with the same nominal settings does not reproduce the same trained weights.
 Two runs here were configured identically over their first five hundred steps —
