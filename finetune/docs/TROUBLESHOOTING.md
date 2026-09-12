@@ -478,7 +478,10 @@ what did not clear the bar is the schedule's effect on what the listener
 heard, not the manipulation. Read the gains per sentence rather than as one
 number: scoring the duplicated baseline instead of the original turns one
 sentence's gain from zero to one, which is still short of the bar and does not
-change the row. That duplicate is worth noting on its own: the same bytes
+change the row. That one is not a partial improvement in the candidate: the
+candidate track scored 2 under either scoring and did not move at all, and the
+gain appeared only because the baseline's own score for the same bytes fell
+from 2 to 1. That duplicate is worth noting on its own: the same bytes
 scored 2 and 1 on that sentence, one grade apart and across the speech
 boundary, so whether that track counts as speech at all is undecided here.
 Seven axis cells were left blank, all on the second sentence, which is why
