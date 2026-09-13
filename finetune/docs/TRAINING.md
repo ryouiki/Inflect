@@ -542,7 +542,9 @@ description rather than a bare number, and requires free text on what the defect
 sounded like. Which letter was which system lives only in `mapping.json`, so
 scoring and tallying are separate steps; a letter tallied directly is noise.
 `--catch-rows` puts one system on a row twice, and the two scores it earns for
-byte-identical audio are that round's noise floor.
+byte-identical audio are the option steps between that one pair -- a fact
+about that pair, not the round's noise floor and not a bound on how much any
+other contrast could have varied.
 
 Score one round at a time. Absolute scores drift between sessions, so only
 contrasts inside a single page are comparable, and none of this is MOS.

@@ -317,7 +317,9 @@ def test_page_seals_the_mapping_and_forces_the_anchor(page_module, tmp_path):
         assert occurrence.endswith("<code>"), "mapping.json may only be named, never loaded"
     assert page_module.QUALITY_AXIS["options"][0] in page
     assert page_module.FREE_TEXT in page
-    for option in page_module.DEFECT_AXIS["options"]:
+    assert page_module.RING_DETAIL in page
+    assert page_module.RING_ORDER in page
+    for option in page_module.DEFECT_AXIS["options"] + page_module.RINGING_AXIS["options"]:
         assert option in page, "a bare number must never stand in for a descriptive label"
 
     mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
@@ -392,6 +394,7 @@ def test_tally_joins_letters_through_the_mapping_and_reads_the_catch_pair(page_m
                 "quality": best if better else worst,
                 "defect": clean,
                 "language": axes["language"]["options"][0],
+                "ringing": axes["ringing"]["options"][0],
             }
         winner = next(letter for letter, name in letters.items() if name == "late")
         loser = next(letter for letter, name in letters.items() if name == "early")
@@ -421,12 +424,63 @@ def test_tally_joins_letters_through_the_mapping_and_reads_the_catch_pair(page_m
     printed = capsys.readouterr().out
     assert "most_natural: {'late': 3}" in printed
     assert "most_blurred: {'early': 3}" in printed
-    assert "noise floor for this round: 0 option step(s)" in printed
+    assert "이 복제쌍의 옵션 단차: 0단" in printed
+    assert "noise floor" not in printed, "a duplicate pair is never the round's noise floor"
 
     summary = json.loads(tally_json.read_text(encoding="utf-8"))
     assert summary["unanswered"] == 0
     assert summary["median_option_index"]["late"]["quality"] > summary["median_option_index"]["early"]["quality"]
     assert len(summary["comments"]) == 3
+
+
+def test_tally_counts_only_the_axes_the_page_asked(tmp_path, capsys):
+    """A verdict sealed before an axis existed still reads as fully answered.
+
+    The ringing axis arrived after several rounds had been scored. Counting it
+    against their pages would report every track of every sealed verdict as a
+    blank, which is the one thing 보류 may never be confused with.
+    """
+
+    mapping_path = tmp_path / "mapping.json"
+    older_axes = {
+        "quality": {"options": ["1 · bad", "2 · fine"]},
+        "defect": {"options": ["0 · none", "1 · some"]},
+        "language": {"options": ["예", "아니오"]},
+    }
+    mapping_path.write_text(
+        json.dumps(
+            {
+                "page_key": "older",
+                "axes": older_axes,
+                "rows": {"0001": {"A": "arm"}},
+                "catch_rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verdict_path = tmp_path / "verdict.json"
+    verdict_path.write_text(
+        json.dumps(
+            {
+                "page_key": "older",
+                "rows": {
+                    "0001": {
+                        "tracks": {"A": {"quality": "2 · fine", "defect": "0 · none", "language": "예"}},
+                        "comment": "nothing odd",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tally = load_tally()
+    output = tmp_path / "tally.json"
+    assert tally.main(["--mapping", str(mapping_path), "--verdict", str(verdict_path), "--output", str(output)]) == 0
+    capsys.readouterr()
+    assert json.loads(output.read_text(encoding="utf-8"))["unanswered"] == 0
+    assert tally.axis_names(older_axes) == ("quality", "defect", "language")
+    assert tally.axis_names({**older_axes, "ringing": {"options": []}})[-1] == "ringing"
 
 
 def test_tally_refuses_a_verdict_from_another_page(tmp_path):

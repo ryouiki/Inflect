@@ -34,8 +34,13 @@ What the page enforces, and why each one exists:
   smears everything into smoothness, so each row also asks which track sounds
   most muffled or smeared.
 * **A byte-identical catch row.** One row can carry the same audio under two
-  letters. A listener who scores them far apart tells you the round's noise
-  floor before you read anything else into it.
+  letters. Scoring them far apart is a fact about that pair, read before
+  anything else is read into the round; it is not the round's noise floor and
+  not a bound on how much any other contrast could have varied.
+* **A ringing scale and a ringing ordering.** Ringing stays inside the defect
+  axis; this is a finer scale on top of it, with one step above the defect
+  ceiling, plus a per-row ordering of the tracks by ringing strength. The
+  ordering is a rank, not a magnitude: it separates tracks the grades tie.
 
 ```
 python examples/build_blind_ab_page.py \
@@ -90,6 +95,22 @@ LANGUAGE_OPTIONS = ["예", "아니오", "판단 어려움"]
 NATURAL_CHOICE = "가장 자연스러운 트랙"
 BLUR_CHOICE = "가장 뭉개지거나 먹먹한 트랙"
 FREE_TEXT = "무엇처럼 들렸는가 · 무엇이 문제였는가 (필수)"
+# Ringing sits inside the defect axis and stays there. This axis is a finer
+# scale laid on top of it, because every adapted track in the rounds that ran
+# before it scored the defect ceiling, which left nothing to compare. The top
+# step is the one the defect axis does not have.
+RINGING_AXIS = {
+    "label": "링잉",
+    "question": "금속성 울림이 있는가 (결함 항목에도 그대로 반영해 주십시오)",
+    "options": [
+        "0 · 없음",
+        "1 · 주의해 들으면 있다",
+        "2 · 뚜렷하다",
+        "3 · 기계음이 말소리를 덮는다",
+    ],
+}
+RING_DETAIL = "링잉이 들린 트랙과 그 구간 (들리지 않았으면 '없음')"
+RING_ORDER = "링잉이 강한 순서로 여섯 트랙을 나열 (같으면 =로 묶기, 예: C > A = E > B > D > F)"
 
 TARGET_RMS_DBFS = -24.0
 PEAK_GUARD_DBFS = -1.0
@@ -234,6 +255,12 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
               {''.join(f'<option>{html.escape(option)}</option>' for option in LANGUAGE_OPTIONS)}
             </select>
           </label>
+          <label>{html.escape(RINGING_AXIS['question'])}
+            <select data-row="{html.escape(row['id'])}" data-letter="{letter}" data-field="ringing">
+              <option value="">—</option>
+              {''.join(f'<option>{html.escape(option)}</option>' for option in RINGING_AXIS['options'])}
+            </select>
+          </label>
         </div>"""
             for letter in letters
         )
@@ -258,6 +285,12 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
         </div>
         <label class="free">{html.escape(FREE_TEXT)}
           <textarea data-row="{html.escape(row['id'])}" data-field="comment" rows="2"></textarea>
+        </label>
+        <label class="free">{html.escape(RING_DETAIL)}
+          <textarea data-row="{html.escape(row['id'])}" data-field="ring_detail" rows="2"></textarea>
+        </label>
+        <label class="free">{html.escape(RING_ORDER)}
+          <textarea data-row="{html.escape(row['id'])}" data-field="ring_order" rows="2"></textarea>
         </label>
       </section>"""
         )
@@ -500,8 +533,11 @@ def main(argv: list[str] | None = None) -> int:
         "quality": QUALITY_AXIS,
         "defect": DEFECT_AXIS,
         "language": {"question": LANGUAGE_QUESTION, "options": LANGUAGE_OPTIONS},
+        "ringing": RINGING_AXIS,
         "forced": {"most_natural": NATURAL_CHOICE, "most_blurred": BLUR_CHOICE},
         "free_text": FREE_TEXT,
+        "ring_detail": RING_DETAIL,
+        "ring_order": RING_ORDER,
         "levelling": {
             "target_rms_dbfs": target_rms_dbfs,
             "peak_guard_dbfs": PEAK_GUARD_DBFS,

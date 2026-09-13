@@ -9,10 +9,15 @@ What it reports, and what it refuses to report:
 * Per system: the distribution of each descriptive axis, as counts and a median
   of the option index. Never a mean — the axes are ordinal.
 * The forced choices, as counts per system.
-* The catch pair, if the page carried one. Two scores for byte-identical audio
-  are this round's noise floor; read every other contrast against it.
-* Free text, grouped by system, because that column has repeatedly carried the
-  defect no axis was watching.
+* The catch pair, if the page carried one, as the option steps between two
+  scores for byte-identical audio. That is a fact about that pair. It is not
+  the round's noise floor and not a bound on how much any other contrast could
+  have varied, so no other contrast is read against it.
+* Free text, per row, because that column has repeatedly carried the defect no
+  axis was watching.
+
+Only the axes the page actually asked are counted, so a verdict sealed before
+an axis existed still tallies the way it did on the day it was read.
 
 It does not compare rounds. Absolute scores drift between sessions, so only
 within-round contrasts mean anything, and a cross-round number would invite
@@ -33,8 +38,19 @@ import json
 import statistics
 from pathlib import Path
 
-AXES = ("quality", "defect", "language")
+KNOWN_AXES = ("quality", "defect", "language", "ringing")
 FORCED = ("most_natural", "most_blurred")
+ROW_TEXT = ("comment", "ring_detail", "ring_order")
+
+
+def axis_names(axes: dict) -> tuple[str, ...]:
+    """The axes this page actually carried, in a fixed order.
+
+    Pages built before an axis existed have no cell for it, and counting one
+    would report every track of every sealed verdict as unanswered. The page's
+    own `axes` block is the authority on what was asked.
+    """
+    return tuple(axis for axis in KNOWN_AXES if axis in axes)
 
 
 def option_index(axes: dict, axis: str, value: str) -> int | None:
@@ -59,15 +75,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     axes = mapping.get("axes", {})
     rows = mapping.get("rows", {})
+    asked = axis_names(axes)
 
     scores: dict[str, dict[str, collections.Counter]] = collections.defaultdict(
-        lambda: {axis: collections.Counter() for axis in AXES}
+        lambda: {axis: collections.Counter() for axis in asked}
     )
     ordinals: dict[str, dict[str, list[int]]] = collections.defaultdict(
-        lambda: {axis: [] for axis in AXES}
+        lambda: {axis: [] for axis in asked}
     )
     forced: dict[str, collections.Counter] = {name: collections.Counter() for name in FORCED}
-    comments: list[tuple[str, str]] = []
+    texts: dict[str, list[tuple[str, str]]] = {field: [] for field in ROW_TEXT}
     unanswered = 0
 
     for row, letters in rows.items():
@@ -76,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         for letter, name in letters.items():
             track = scored.get("tracks", {}).get(letter, {})
-            for axis in AXES:
+            for axis in asked:
                 value = track.get(axis, "")
                 if not value:
                     unanswered += 1
@@ -89,16 +106,17 @@ def main(argv: list[str] | None = None) -> int:
             letter = scored.get(choice, "")
             if letter and letter in letters:
                 forced[choice][letters[letter]] += 1
-        comment = (scored.get("comment") or "").strip()
-        if comment:
-            comments.append((row, comment))
+        for field in ROW_TEXT:
+            written = (scored.get(field) or "").strip()
+            if written:
+                texts[field].append((row, written))
 
     print(f"page {mapping.get('page_key')} · rows scored {len(verdict.get('rows', {}))}/{len(rows)}")
     print(f"unanswered axis cells: {unanswered}")
     print()
     for name in sorted(scores):
         print(f"[{name}]")
-        for axis in AXES:
+        for axis in asked:
             counter = scores[name][axis]
             if not counter:
                 continue
@@ -138,14 +156,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {letter}: {value or '—'}")
             if spread is not None:
                 print(
-                    f"  noise floor for this round: {spread} option step(s) on byte-identical audio"
+                    f"  이 복제쌍의 옵션 단차: {spread}단 "
+                    "(바이트 동일 오디오 · 라운드 전체의 잡음 바닥도 변동의 상한도 아니다)"
                 )
 
-    if comments:
-        print()
-        print("free text")
-        for row, comment in comments:
-            print(f"  {row}: {comment}")
+    for field in ROW_TEXT:
+        if texts[field]:
+            print()
+            print(field)
+            for row, written in texts[field]:
+                print(f"  {row}: {written}")
 
     if args.output:
         args.output.write_text(
@@ -170,7 +190,11 @@ def main(argv: list[str] | None = None) -> int:
                     },
                     "forced": {choice: dict(counter) for choice, counter in forced.items()},
                     "catch_rows": catch_rows,
-                    "comments": [{"row": row, "comment": comment} for row, comment in comments],
+                    "comments": [{"row": row, "comment": comment} for row, comment in texts["comment"]],
+                    "row_text": {
+                        field: [{"row": row, "text": written} for row, written in entries]
+                        for field, entries in texts.items()
+                    },
                     "note": (
                         "Within-round contrasts only. Absolute scores are not comparable "
                         "across rounds and are not MOS."

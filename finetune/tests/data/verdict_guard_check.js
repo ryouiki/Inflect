@@ -36,9 +36,12 @@ function buildDom() {
       makeField(id, "quality", "A", "3"),
       makeField(id, "defect", "A", "1"),
       makeField(id, "language", "A", "예"),
+      makeField(id, "ringing", "A", "1 · 주의해 들으면 있다"),
       makeField(id, "most_natural", null, "A"),
       makeField(id, "most_blurred", null, "A"),
       makeField(id, "comment", null, "말이 된다"),
+      makeField(id, "ring_detail", null, "없음"),
+      makeField(id, "ring_order", null, "A"),
     ];
     return { id: "row-" + id, fields, querySelectorAll: () => fields };
   });
