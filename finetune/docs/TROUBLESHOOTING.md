@@ -555,10 +555,17 @@ and the naturalness grades of the two cap checkpoints were identical as well;
 the one axis where they differed was the language answer on a single sentence,
 which the round's own rule calls undecided. So the page could not tell the two
 runs' caps apart, and the recovery result is not evidence that the term did
-anything. Whether this term changes the ringing is not settled by one run pair
-whose training histories differ and whose run-to-run variation has never been
-measured. What is settled is narrower: this setting -- weight 3, every stage,
-from the base export, ten thousand steps -- is not adopted.
+anything.
+
+Read that failure to separate as what it is: a limit of this page. One
+listener, two sentences, and ordinal scales of five and three steps did not
+put the two tracks in different grades. It is not a finding that the two runs
+sound the same, and it is not a finding that the term does nothing -- a
+difference smaller than a grade, or one these axes do not ask about, is not
+ruled out by any of it. Whether this term changes the ringing is not settled
+by one run pair whose training histories differ and whose run-to-run variation
+has never been measured. What is settled is narrower: this setting -- weight 3,
+every stage, from the base export, ten thousand steps -- is not adopted.
 
 The instruments moved while the listening did not, which is the same shape as
 the mel A/B above. The comb excess came out lower for the run with the term
