@@ -577,6 +577,47 @@ listener hears, and this is the first of the ringing remedies in this record
 to reach a listening verdict at all -- the earlier five were judged on screens
 alone, none of them listened to, all of them before the mel defect was fixed.
 
+The next round asked which path the ringing sits on, with no training. The
+reconstruction of a checkpoint runs the real recording through the posterior
+encoder into the decoder; its inference runs text through the prior encoder,
+the duration predictor and the flow into the same decoder. The two share the
+decoder and nothing else. Both existing caps were rendered both ways and put
+on one page with the recording, on two new sentences, under a ringing axis
+laid on top of the defect axis -- ringing stays counted as a defect; the new
+axis only adds a step above the defect ceiling -- plus a per-row ranking of
+the tracks by how strongly they ring.
+
+Three of the four adapted tracks rang clearly on both sentences: both
+reconstructions and the first run's inference. The second run's inference
+rang clearly on one sentence and faintly on the other. On the grade, neither
+checkpoint's two paths separated; the index difference was zero on three of
+the four cells. On the ranking they did separate, and the direction turned on
+the sentence rather than the checkpoint: on one sentence both reconstructions
+were ranked above both inferences, on the other both inferences above both
+reconstructions. The listener's own note on the first sentence describes the
+reconstructions ringing continuously from one word onward and the inferences
+ringing on particular words -- one row's words, recorded and not read into
+anything.
+
+The pre-declared map issues nothing here. Its branch for "both paths ring,
+nothing separates them" needed all four tracks at the clear grade on both
+sentences and needed the ranking not to separate them either; the branches
+for "one path rings more" needed one direction across both checkpoints. None
+of that held, so no path is named and no next experiment is recommended --
+the choice returns to the user. Two limits bound the round in any case: a
+reconstruction exercises the posterior as well as the decoder, so a ringing
+reconstruction does not single the decoder out; and a reconstruction inherits
+the recording's timing, so the listener could tell which tracks were
+reconstructions. The one cell that met every usability condition -- the
+second run's inference on the first sentence, at naturalness 4, defect 1,
+language yes -- is one track on one sentence, and is written as that.
+
+After scoring, the listener remarked that the ringing was clearly less than
+in the earlier pages. That is the listener's own impression across sessions,
+recorded as said. The protocol does not line grades up across rounds, so the
+tables neither support nor contradict it, and nothing in the verdict rests on
+it.
+
 One thing to know before reading any two runs against each other: repeating a
 run with the same nominal settings does not reproduce the same trained weights.
 Two runs here were configured identically over their first five hundred steps —
