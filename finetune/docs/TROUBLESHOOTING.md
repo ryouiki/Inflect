@@ -589,12 +589,25 @@ the tracks by how strongly they ring.
 
 Three of the four adapted tracks rang clearly on both sentences: both
 reconstructions and the first run's inference. The second run's inference
-rang clearly on one sentence and faintly on the other. On the grade, neither
-checkpoint's two paths separated; the index difference was zero on three of
-the four cells. On the ranking they did separate, and the direction turned on
-the sentence rather than the checkpoint: on one sentence both reconstructions
-were ranked above both inferences, on the other both inferences above both
-reconstructions. The listener's own note on the first sentence describes the
+rang clearly on one sentence and faintly on the other. On the grade, what
+failed was a consistent direction across both sentences, not the existence of
+a difference: the index difference was zero on three of the four cells, and
+on the fourth -- the second run, first sentence -- the reconstruction came in
+one grade above the inference. On the ranking the two paths did separate, and
+the direction turned on the sentence rather than the checkpoint: on one
+sentence both reconstructions were ranked above both inferences, on the other
+both inferences above both reconstructions. That direction is read on the
+ranking alone, and the ranking is one ordering per row, so the two
+checkpoints' pairs are two readings of a single ordering rather than
+independent repeats.
+
+Worth carrying forward from the same page: on the first sentence the second
+run's inference was graded one step better than the first run's on both
+defect and ringing, and the ranking put it behind the other inference as
+well. The two are separate pre-declared items and neither supports the other;
+the two runs have different training histories and their run-to-run variation
+is unmeasured, so this is an exploratory contrast and not a claim that the
+extra loss term reduced anything. The listener's own note on the first sentence describes the
 reconstructions ringing continuously from one word onward and the inferences
 ringing on particular words -- one row's words, recorded and not read into
 anything.
