@@ -117,14 +117,28 @@ alone. More steps can make adaptation worse.
 ## A steady tone or hum behind the voice
 
 The giveaway is that it does not stop when the speaking does. A comb of tones at
-multiples of the sample rate over the frame hop sits under the whole render,
-including the silence between words, and on headphones it localizes as a single
-pitch behind the voice. For Micro at 24 kHz with hop 256 that is 93.75 Hz and
-its multiples.
+multiples of the sample rate over the frame hop sits under the render, and on
+headphones it localizes as a single pitch behind the voice. For Micro at 24 kHz
+with hop 256 that is 93.75 Hz and its multiples.
 
-Confirm it from an evaluation report rather than by ear. `grid_tone_excess_db`
-is zero by construction for real speech and measured 8.15 dB at the median on a
-rejected run against -0.13 dB on the speaker's own recordings.
+What it does between words is measured on the render's own noise floor, so read
+those numbers with the floor in mind. On two Japanese checkpoints the windows
+with no active frame are 1.2 to 1.4 LSB of a 16-bit file, and the ratio there
+is taken against a floor that quantisation is partly setting. Comparing the
+float output against the stored file on the same windows separates the two: the
+ratio is 8 to 9 dB *higher* before the file is written on one track, within a
+decibel on another, and identical to two decimals in every window that has
+speech in it. So the comb does not stop between words, but its size there is a
+measurement about the file as much as about the model, and the effect is
+confined to windows near the quantiser.
+
+Confirm the tone's presence from an evaluation report rather than by ear, and
+leave the verdict to the listener -- screens eliminate, they do not decide.
+`grid_tone_excess_db` measured 8.15 dB at the median on a rejected run against
+-0.13 dB on the speaker's own recordings. It is not zero by construction for
+real speech: on 341 ms windows a recording of this speaker reaches +5.8 dB, and
+a render of the same sentence reaches +16.3, so the separation is wide but the
+"+6 and up" that reads like a line on whole clips is not one on windows.
 `steady_tone_artifact_score` separated the same two sets completely, 29.9
 against 0.00. `clips_f0_locked_to_frame_grid` counts clips where the pitch
 tracker reported the comb as the voice; one failing checkpoint scored 134 of

@@ -2,7 +2,9 @@
 
 A VITS-family decoder that overfits its upsampler can emit a steady comb at
 multiples of ``sample_rate / hop_length`` (93.75 Hz for 24 kHz audio at a hop of
-256), audible even in silent frames as a metallic ring. The measurements here
+256), heard as a metallic ring behind the voice. It is present between words
+too, though the size measured there is partly a measurement about the stored
+file: those windows sit near the 16-bit quantiser. The measurements here
 are the ones that separated the failing adaptation renders from real recordings
 during that diagnosis. The module deliberately depends on nothing but numpy and
 ``scipy.signal`` so that both the trainer and the evaluator can import it
@@ -83,12 +85,22 @@ def grid_comb_metrics(
 
     ``grid_tone_level_db`` and ``off_grid_level_db`` report those two band
     powers against the clip's own signal power, which is what to compare when
-    two renders differ in level or in noise floor.
+    two renders differ in level or in noise floor. The numerator is a mean PSD
+    -- a density, from a Welch estimate -- and the denominator a mean square,
+    so neither is a plain power ratio and the absolute offset moves with
+    ``nperseg``, the window and the sample rate. Adding the slice's own
+    ``rms_dbfs`` back cancels the denominator and leaves the mean PSD itself;
+    that is the quantity the trajectory CSVs call ``on_grid_psd_raw_db``, and
+    it is not dBFS.
 
     ``grid_tone_excess_db`` compares mean power in bins within
     ``grid_tolerance_hz`` of a grid multiple against every other bin in the
-    band: it is 0 dB by construction for real speech and +6..+9 dB for the
-    ringing renders. ``fold_periodic_db`` folds the waveform at the hop period
+    band. On whole clips it is near 0 dB for real speech and +6..+9 dB for the
+    ringing renders, but neither half of that is a property of the measure: it
+    is not zero by construction, and on 341 ms windows a recording reached
+    +5.8 dB while a render of the same sentence reached +16.3. Read the range
+    as what has been observed at clip length, not as a threshold.
+    ``fold_periodic_db`` folds the waveform at the hop period
     and reports the surviving power, but its floor is ``-10*log10(frames)`` for
     an uncorrelated signal and therefore moves with clip length, so
     ``fold_periodic_excess_db`` restates it against that floor and is the value
