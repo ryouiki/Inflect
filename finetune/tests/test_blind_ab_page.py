@@ -318,7 +318,13 @@ def test_page_seals_the_mapping_and_forces_the_anchor(page_module, tmp_path):
     assert page_module.QUALITY_AXIS["options"][0] in page
     assert page_module.FREE_TEXT in page
     assert page_module.RING_DETAIL in page
-    assert page_module.RING_ORDER in page
+    # The ranking prompt names the row's own track count, so the catch row and
+    # the plain rows carry different wordings and both must appear. The label
+    # is HTML-escaped; the sealed mapping carries the unescaped text.
+    import html as _html
+
+    assert _html.escape(page_module.ring_order_prompt(4)) in page
+    assert _html.escape(page_module.ring_order_prompt(3)) in page
     for option in page_module.DEFECT_AXIS["options"] + page_module.RINGING_AXIS["options"]:
         assert option in page, "a bare number must never stand in for a descriptive label"
 

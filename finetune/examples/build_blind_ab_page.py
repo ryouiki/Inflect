@@ -110,7 +110,27 @@ RINGING_AXIS = {
     ],
 }
 RING_DETAIL = "링잉이 들린 트랙과 그 구간 (들리지 않았으면 '없음')"
-RING_ORDER = "링잉이 강한 순서로 여섯 트랙을 나열 (같으면 =로 묶기, 예: C > A = E > B > D > F)"
+# The ranking prompt has to name the number of tracks the row actually carries,
+# and a catch row carries one more than the others, so it is rendered per row
+# rather than fixed once. The four graded axes above stay fixed: they are what
+# the protocol compares across rounds, and this is a per-row record field.
+_TRACK_COUNT_WORDS = {2: "두", 3: "세", 4: "네", 5: "다섯", 6: "여섯", 7: "일곱", 8: "여덟"}
+RING_ORDER_TEMPLATE = "링잉이 강한 순서로 {count} 트랙을 나열 (같으면 =로 묶기, 예: {example})"
+
+
+def ring_order_prompt(track_count: int) -> str:
+    """The ranking prompt for a row that carries this many tracks."""
+    if track_count not in _TRACK_COUNT_WORDS:
+        raise ValueError(f"no wording for {track_count} tracks")
+    letters = _LETTERS[:track_count]
+    if track_count == 2:
+        example = f"{letters[0]} > {letters[1]}"
+    else:
+        # One tie in the example, so the "=" convention is shown at any width.
+        example = f"{letters[0]} > " + " = ".join(letters[1:3])
+        if track_count > 3:
+            example += " > " + " > ".join(letters[3:])
+    return RING_ORDER_TEMPLATE.format(count=_TRACK_COUNT_WORDS[track_count], example=example)
 
 TARGET_RMS_DBFS = -24.0
 PEAK_GUARD_DBFS = -1.0
@@ -289,7 +309,7 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
         <label class="free">{html.escape(RING_DETAIL)}
           <textarea data-row="{html.escape(row['id'])}" data-field="ring_detail" rows="2"></textarea>
         </label>
-        <label class="free">{html.escape(RING_ORDER)}
+        <label class="free">{html.escape(ring_order_prompt(len(letters)))}
           <textarea data-row="{html.escape(row['id'])}" data-field="ring_order" rows="2"></textarea>
         </label>
       </section>"""
@@ -517,6 +537,7 @@ def main(argv: list[str] | None = None) -> int:
 
     mapping: dict[str, dict[str, str]] = {}
     page_rows: list[dict] = []
+    row_widths: set[int] = set()
     for row, names in row_names.items():
         letters = assign_letters(names, seed_bytes, row)
         destination = output / "tracks" / row
@@ -527,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
             sf.write(str(destination / f"{letter}.wav"), samples, sample_rate, subtype="PCM_16")
         mapping[row] = {letter: name for name, letter in letters.items()}
         page_rows.append({"id": row, "letters": list(letters.values()), "text": texts.get(row, "")})
+        row_widths.add(len(letters))
 
     page_key = args.page_key or output.name
     axes = {
@@ -537,7 +559,15 @@ def main(argv: list[str] | None = None) -> int:
         "forced": {"most_natural": NATURAL_CHOICE, "most_blurred": BLUR_CHOICE},
         "free_text": FREE_TEXT,
         "ring_detail": RING_DETAIL,
-        "ring_order": RING_ORDER,
+        # What was actually asked. One string when every row carries the same
+        # number of tracks; otherwise one per width, because a single count
+        # would be wrong on some rows and the sealed mapping has to say what
+        # the listener read.
+        "ring_order": (
+            ring_order_prompt(next(iter(row_widths)))
+            if len(row_widths) == 1
+            else {str(width): ring_order_prompt(width) for width in sorted(row_widths)}
+        ),
         "levelling": {
             "target_rms_dbfs": target_rms_dbfs,
             "peak_guard_dbfs": PEAK_GUARD_DBFS,
