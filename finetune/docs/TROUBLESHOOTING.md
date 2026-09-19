@@ -127,10 +127,13 @@ with no active frame are 1.2 to 1.4 LSB of a 16-bit file, and the ratio there
 is taken against a floor that quantisation is partly setting. Comparing the
 float output against the stored file on the same windows separates the two: the
 ratio is 8 to 9 dB *higher* before the file is written on one track, within a
-decibel on another, and identical to two decimals in every window that has
-speech in it. So the comb does not stop between words, but its size there is a
-measurement about the file as much as about the model, and the effect is
-confined to windows near the quantiser.
+decibel on another, and identical to two decimals in every window where every
+frame -- or all but one -- is active. Partially active windows are not that
+clean: seventeen of them move by more than a hundredth of a decibel and seven
+by more than two tenths, the largest by 5.6 dB, all of them windows with five
+or fewer active frames. So the comb does not stop between words, but its size
+there is a measurement about the file as much as about the model, and the
+effect is confined to windows with little speech in them.
 
 Confirm the tone's presence from an evaluation report rather than by ear, and
 leave the verdict to the listener -- screens eliminate, they do not decide.
