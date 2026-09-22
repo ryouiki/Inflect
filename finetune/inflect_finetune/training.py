@@ -18,14 +18,18 @@ from torch import nn
 from torch.nn import functional as F
 
 from .checkpoint import (
+    BRANCH_PERMITTED_DIFFERENCES,
     CompatibilityReport,
     build_run_identity,
     cpu_compatibility_report,
     load_posterior_sidecar,
     load_run_identity,
+    load_training_checkpoint_header,
     resume_training_checkpoint,
     save_inference_checkpoint,
     save_training_checkpoint,
+    sha256_file,
+    validate_branch_identity,
     validate_run_identity,
     write_run_identity,
 )
@@ -75,6 +79,9 @@ class TrainingOptions:
     output_dir: str | Path
     preset: str | Path | None = None
     resume: str | Path | None = None
+    # A training checkpoint from *another* run to continue in a new output
+    # directory, carrying its full state. See `_establish_branch_identity`.
+    branch_from: str | Path | None = None
     device: str = "auto"
     seed: int = 1234
     batch_size: int = 2
@@ -189,6 +196,11 @@ def load_preset(preset: str | Path) -> dict[str, Any]:
 
 
 def _validate_options(options: TrainingOptions) -> None:
+    if options.resume is not None and options.branch_from is not None:
+        raise ValueError(
+            "resume continues this run and branch_from starts a new one from another run's "
+            "checkpoint; pass one of them, not both."
+        )
     positive_ints = (
         "batch_size",
         "gradient_accumulation_steps",
@@ -787,7 +799,7 @@ def _grad_scaler(enabled: bool):
 
 def _public_options(options: TrainingOptions) -> dict[str, Any]:
     payload = asdict(options)
-    for key in ("base_model", "prepared_dir", "output_dir", "preset", "resume"):
+    for key in ("base_model", "prepared_dir", "output_dir", "preset", "resume", "branch_from"):
         payload.pop(key, None)
     return json.loads(json.dumps(payload, sort_keys=True))
 
@@ -933,8 +945,262 @@ def _establish_run_identity(
         optimizer_schema=optimizer_schema,
         posterior_path=posterior_path,
     )
+    # A run that began as a branch records where it came from, and that record
+    # is part of its identity. Rebuilding from options alone cannot recreate it,
+    # so it is carried over from the marker -- without this, a branch that was
+    # interrupted could never be resumed.
+    if "branch" in recorded:
+        expected["branch"] = recorded["branch"]
     validate_run_identity(recorded, expected, source="output directory run marker")
     return expected, checkpoint
+
+
+#: What a branch takes from its parent checkpoint, by payload key. The one thing
+#: it cannot take is the order of the data: the loader's shuffle generator is
+#: rebuilt from `seed` in every process and is not part of any checkpoint.
+BRANCH_INHERITED_STATE = (
+    "generator",
+    "discriminator",
+    "optimizer_g",
+    "optimizer_d",
+    "scheduler_g",
+    "scheduler_d",
+    "scaler",
+    "rng_state",
+    "step",
+    "epoch",
+    "stage",
+)
+BRANCH_NOT_INHERITED = ("dataloader shuffle order",)
+
+
+def _establish_branch_identity(
+    *,
+    options: TrainingOptions,
+    output_dir: Path,
+    base_root: Path,
+    prepared_dir: Path,
+    posterior_path: Path | None = None,
+) -> tuple[dict[str, Any], Path, dict[str, Any], dict[str, Any]]:
+    """Start a new run that continues another run's training checkpoint.
+
+    `--resume` is bound to its own run twice over: the checkpoint has to sit in
+    this run's checkpoints directory, and the identity has to match exactly, so
+    raising `max_steps` makes a finished run unresumable. Chaining through an
+    export instead throws away the discriminator, both optimizers, both
+    schedulers, the scaler and the step, and replays the whole stage schedule.
+
+    A branch keeps all of that and lives in a new directory. Its identity is
+    built as any new run's is and then compared with the parent's field by
+    field: only `BRANCH_PERMITTED_DIFFERENCES` may differ, and anything else is
+    named and refused. Nothing is created on disk until every check has passed.
+
+    Returns the branch's identity, the parent checkpoint, the parent's own
+    identity (which the checkpoint payload is then verified against, strictly)
+    and the parent header.
+    """
+
+    parent = Path(options.branch_from).resolve()
+    if not parent.is_file():
+        raise FileNotFoundError(f"Branch parent checkpoint does not exist: {parent}")
+    header = load_training_checkpoint_header(parent)
+    if int(options.max_steps) <= header["step"]:
+        raise ValueError(
+            f"A branch has to go past its parent: max_steps {options.max_steps} is not "
+            f"beyond the parent's step {header['step']}."
+        )
+    _validate_new_output_dir(output_dir)
+    identity = build_run_identity(
+        run_id=uuid.uuid4().hex,
+        base_root=base_root,
+        prepared_dir=prepared_dir,
+        options=_public_options(options),
+        optimizer_schema=_optimizer_schema(options),
+        posterior_path=posterior_path,
+    )
+    differences = validate_branch_identity(header["run_identity"], identity)
+    parent_run_dir = parent.parent.parent
+    identity["branch"] = {
+        "parent_run_id": str(header["run_identity"].get("run_id", "")),
+        "parent_run": parent_run_dir.name,
+        "parent_checkpoint": parent.name,
+        "parent_checkpoint_sha256": sha256_file(parent),
+        "parent_step": header["step"],
+        "parent_epoch": header["epoch"],
+        "parent_stage": header["stage"],
+        "inherited": list(BRANCH_INHERITED_STATE),
+        "not_inherited": list(BRANCH_NOT_INHERITED),
+        "permitted_differences": list(BRANCH_PERMITTED_DIFFERENCES),
+        "differences": differences,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_run_identity(output_dir / "run-identity.json", identity)
+    return identity, parent, dict(header["run_identity"]), header
+
+
+def _same_tensors(live: Mapping[str, Any], saved: Mapping[str, Any]) -> dict[str, Any]:
+    keys = sorted(set(live) | set(saved), key=str)
+    unequal = [
+        str(key)
+        for key in keys
+        if key not in live
+        or key not in saved
+        or not torch.equal(torch.as_tensor(live[key]).cpu(), torch.as_tensor(saved[key]).cpu())
+    ]
+    return {"ok": not unequal, "compared": len(keys), "unequal": unequal[:8]}
+
+
+def _same_optimizer_moments(live: Mapping[str, Any], saved: Mapping[str, Any]) -> dict[str, Any]:
+    unequal: list[str] = []
+    compared = 0
+    for index in sorted(set(live) | set(saved)):
+        if index not in live or index not in saved:
+            unequal.append(f"{index}: present on one side only")
+            continue
+        for field in sorted(set(live[index]) | set(saved[index])):
+            compared += 1
+            left, right = live[index].get(field), saved[index].get(field)
+            if left is None or right is None or not torch.equal(
+                torch.as_tensor(left).cpu(), torch.as_tensor(right).cpu()
+            ):
+                unequal.append(f"{index}.{field}")
+    return {"ok": not unequal, "compared": compared, "unequal": unequal[:8]}
+
+
+def _branch_continuity_check(
+    parent: Path,
+    *,
+    options: TrainingOptions,
+    state: TrainingState,
+    generator: nn.Module,
+    discriminator: nn.Module,
+    optimizer_g: torch.optim.Optimizer,
+    optimizer_d: torch.optim.Optimizer,
+    scheduler_g: Any,
+    scheduler_d: Any,
+    scaler: Any,
+    boundary_reset: bool,
+) -> dict[str, Any]:
+    """Compare the live state with the parent checkpoint before the first update.
+
+    Loading a checkpoint and then assuming it landed is how a continuation goes
+    wrong without anyone noticing -- a strict-free load, a scheduler that
+    restarts, a scaler at its default scale. So every piece the branch claims
+    to inherit is compared with the file it came from, and the result is
+    written next to the run whether or not it passes.
+
+    The learning rates are compared with the parent's decayed values, except
+    when the branch point is itself a stage boundary: an uninterrupted run
+    resets the rates to nominal there, and so does a resume, so that is the
+    value to expect.
+    """
+
+    payload = torch.load(parent, map_location="cpu", weights_only=False)
+    items: dict[str, dict[str, Any]] = {}
+
+    items["position"] = {
+        "ok": (state.step, state.epoch) == (int(payload["step"]), int(payload["epoch"]))
+        and state.stage in {payload["stage"], _stage_for_step(options, state.step)},
+        "live": {"step": state.step, "epoch": state.epoch, "stage": state.stage},
+        "parent": {"step": payload["step"], "epoch": payload["epoch"], "stage": payload["stage"]},
+    }
+    items["generator"] = _same_tensors(generator.state_dict(), payload["generator"])
+    items["discriminator"] = _same_tensors(discriminator.state_dict(), payload["discriminator"])
+
+    saved_groups = payload["optimizer_g"]["param_groups"]
+    group_rows = []
+    groups_ok = len(saved_groups) == len(optimizer_g.param_groups)
+    for live_group, saved_group in zip(optimizer_g.param_groups, saved_groups):
+        expected_lr = (
+            options.learning_rate_g * saved_group["lr_multiplier"]
+            if boundary_reset and saved_group["lr"] != 0.0
+            else saved_group["lr"]
+        )
+        same = (
+            live_group.get("name") == saved_group.get("name")
+            and live_group.get("lr_multiplier") == saved_group.get("lr_multiplier")
+            and live_group["lr"] == expected_lr
+        )
+        groups_ok = groups_ok and same
+        group_rows.append(
+            {
+                "name": live_group.get("name"),
+                "lr_multiplier": live_group.get("lr_multiplier"),
+                "lr": live_group["lr"],
+                "expected_lr": expected_lr,
+            }
+        )
+    items["optimizer_g_groups"] = {"ok": groups_ok, "groups": group_rows}
+    items["optimizer_g_moments"] = _same_optimizer_moments(
+        optimizer_g.state_dict()["state"], payload["optimizer_g"]["state"]
+    )
+    d_rates = [group["lr"] for group in optimizer_d.param_groups]
+    saved_d_rates = [group["lr"] for group in payload["optimizer_d"]["param_groups"]]
+    items["optimizer_d"] = {
+        "ok": d_rates == saved_d_rates
+        and _same_optimizer_moments(
+            optimizer_d.state_dict()["state"], payload["optimizer_d"]["state"]
+        )["ok"],
+        "lr": d_rates,
+        "parent_lr": saved_d_rates,
+    }
+    for name, scheduler in (("scheduler_g", scheduler_g), ("scheduler_d", scheduler_d)):
+        live = scheduler.state_dict()
+        saved = payload[name]
+        fields = ("last_epoch", "_step_count", "gamma")
+        items[name] = {
+            "ok": all(live.get(field) == saved.get(field) for field in fields),
+            "live": {field: live.get(field) for field in fields},
+            "parent": {field: saved.get(field) for field in fields},
+        }
+    live_scaler = scaler.state_dict()
+    items["scaler"] = {
+        "ok": live_scaler == payload["scaler"],
+        "live": live_scaler,
+        "parent": payload["scaler"],
+    }
+    saved_rng = payload.get("rng_state", {})
+    rng_checks = {
+        "torch": torch.equal(torch.random.get_rng_state(), saved_rng.get("torch", torch.empty(0))),
+        "numpy": _same_numpy_state(np.random.get_state(), saved_rng.get("numpy")),
+        "python": random.getstate() == saved_rng.get("python"),
+    }
+    if "cuda" in saved_rng and torch.cuda.is_available():
+        live_cuda = torch.cuda.get_rng_state_all()
+        rng_checks["cuda"] = len(live_cuda) == len(saved_rng["cuda"]) and all(
+            torch.equal(a, b) for a, b in zip(live_cuda, saved_rng["cuda"])
+        )
+    items["rng_state"] = {"ok": all(rng_checks.values()), "compared": rng_checks}
+
+    boundaries = [
+        step
+        for step in (options.posterior_warmup_steps, options.decoder_unfreeze_step)
+        if step is not None and state.step < step <= options.max_steps
+    ]
+    # Recorded, never failed: crossing a boundary later in the branch is what an
+    # uninterrupted run would do too. The record states it so a reader knows
+    # whether the rates stay on one decay curve for the whole continuation.
+    items["stage_schedule"] = {
+        "ok": True,
+        "branch_point_is_boundary": boundary_reset,
+        "boundaries_ahead": boundaries,
+    }
+    del payload
+    return {
+        "format": "inflect_branch_continuity_check_v1",
+        "parent": parent.name,
+        "passed": all(item["ok"] for item in items.values()),
+        "items": items,
+    }
+
+
+def _same_numpy_state(live: Any, saved: Any) -> bool:
+    if saved is None or len(live) != len(saved):
+        return False
+    return all(
+        np.array_equal(a, b) if isinstance(a, np.ndarray) else a == b
+        for a, b in zip(live, saved)
+    )
 
 
 @torch.inference_mode()
@@ -997,13 +1263,27 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
     symbols = load_symbols(prepared_dir / "symbols.json")
     base_root = resolve_base_model(options.base_model)
     posterior_path = _posterior_sidecar_path(options, base_root)
-    run_identity, resume_checkpoint = _establish_run_identity(
-        options=options,
-        output_dir=output_dir,
-        base_root=base_root,
-        prepared_dir=prepared_dir,
-        posterior_path=posterior_path,
-    )
+    branch_header: dict[str, Any] | None = None
+    if options.branch_from is not None:
+        run_identity, resume_checkpoint, checkpoint_identity, branch_header = (
+            _establish_branch_identity(
+                options=options,
+                output_dir=output_dir,
+                base_root=base_root,
+                prepared_dir=prepared_dir,
+                posterior_path=posterior_path,
+            )
+        )
+    else:
+        run_identity, resume_checkpoint = _establish_run_identity(
+            options=options,
+            output_dir=output_dir,
+            base_root=base_root,
+            prepared_dir=prepared_dir,
+            posterior_path=posterior_path,
+        )
+        # A resume's checkpoint carries this run's own identity.
+        checkpoint_identity = run_identity
 
     bundle = build_training_models(base_root, symbols, seed=options.seed)
     posterior_state = (
@@ -1065,7 +1345,9 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             scheduler_d=scheduler_d,
             scaler=scaler,
             expected_symbols=symbols,
-            expected_run_identity=run_identity,
+            # For a branch this is the parent's identity: the payload is still
+            # checked strictly, just against the run that wrote it.
+            expected_run_identity=checkpoint_identity,
             generator_ema=generator_ema,
         )
         expected_stage = _stage_for_step(options, step)
@@ -1095,6 +1377,33 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             state.stage,
             reset_learning_rates=expected_stage != previous_stage,
         )
+        if branch_header is not None:
+            # Before the first update, show the continuation starts exactly where
+            # the parent stopped. Nothing between the load above and this point
+            # consumes randomness, so even the RNG states can be compared.
+            check = _branch_continuity_check(
+                resume_checkpoint,
+                options=options,
+                state=state,
+                generator=bundle.generator,
+                discriminator=bundle.discriminator,
+                optimizer_g=optimizer_g,
+                optimizer_d=optimizer_d,
+                scheduler_g=scheduler_g,
+                scheduler_d=scheduler_d,
+                scaler=scaler,
+                boundary_reset=expected_stage != previous_stage,
+            )
+            (output_dir / "branch-check.json").write_text(
+                json.dumps(check, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            if not check["passed"]:
+                failed = sorted(name for name, item in check["items"].items() if not item["ok"])
+                raise RuntimeError(
+                    "The branch does not continue its parent exactly; stopping before the "
+                    f"first update. Failed: {failed}. See {output_dir / 'branch-check.json'}."
+                )
 
     audio = AudioConfig(
         sampling_rate=int(bundle.config["data"]["sampling_rate"]),

@@ -411,6 +411,89 @@ def validate_run_identity(
         )
 
 
+#: What a branch may change relative to the run it continues. Everything else in
+#: the identity — base checkpoint, dataset, symbols, every option, the optimizer
+#: schema — has to match, because the whole point of a branch is that the
+#: inherited optimizer, scheduler and scaler state still describe the same run.
+BRANCH_PERMITTED_DIFFERENCES = ("run_id", "options.max_steps")
+
+
+def _flatten_identity(payload: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    flat: dict[str, Any] = {}
+    for key, value in payload.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, Mapping):
+            flat.update(_flatten_identity(value, path + "."))
+        else:
+            flat[path] = value
+    return flat
+
+
+def validate_branch_identity(
+    parent: Mapping[str, Any],
+    child: Mapping[str, Any],
+    *,
+    permitted: Sequence[str] = BRANCH_PERMITTED_DIFFERENCES,
+) -> list[str]:
+    """Compare a branch's identity with its parent's, field by field.
+
+    `validate_run_identity` compares whole documents and can only say which
+    top-level key moved, which for any option is just ``options``. A branch needs
+    the opposite: it is *supposed* to differ, in exactly the permitted fields,
+    and anything else that differs has to be named so the caller knows what to
+    put back. Each side's own ``branch`` block is lineage, not a setting, and is
+    left out, so a branch of a branch is compared on its settings alone.
+
+    Returns the dotted paths that differ, all of them permitted.
+    """
+
+    for label, payload in (("parent checkpoint", parent), ("branch", child)):
+        if not isinstance(payload, Mapping) or payload.get("format") != RUN_IDENTITY_FORMAT:
+            raise ValueError(f"{label} carries no run identity in a supported format.")
+    left = _flatten_identity({k: v for k, v in parent.items() if k != "branch"})
+    right = _flatten_identity({k: v for k, v in child.items() if k != "branch"})
+    missing = object()
+    differing = sorted(
+        path
+        for path in set(left) | set(right)
+        if left.get(path, missing) != right.get(path, missing)
+    )
+    forbidden = [path for path in differing if path not in permitted]
+    if forbidden:
+        raise ValueError(
+            "A branch may change only "
+            f"{list(permitted)} relative to its parent; these differ as well: {forbidden}"
+        )
+    return differing
+
+
+def load_training_checkpoint_header(path: str | Path) -> dict[str, Any]:
+    """Read what a branch needs to decide before any model exists.
+
+    The full payload is loaded because torch offers no partial read of these
+    files; only the small fields are kept, so the tensors can be freed before the
+    model is built.
+    """
+
+    payload = _torch_load(Path(path))
+    if not isinstance(payload, dict) or payload.get("format") != TRAINING_FORMAT:
+        raise ValueError(
+            "A branch starts from an Inflect adaptation training checkpoint, not a base "
+            "release or an inference export."
+        )
+    missing = sorted({"run_identity", "step", "epoch", "stage", "symbols"} - payload.keys())
+    if missing:
+        raise ValueError(f"Branch parent checkpoint is missing {missing}.")
+    return {
+        "run_identity": payload["run_identity"],
+        "step": int(payload["step"]),
+        "epoch": int(payload["epoch"]),
+        "stage": str(payload["stage"]),
+        "symbols": list(payload["symbols"]),
+        "keys": sorted(payload.keys()),
+    }
+
+
 def write_run_identity(path: str | Path, identity: Mapping[str, Any]) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)

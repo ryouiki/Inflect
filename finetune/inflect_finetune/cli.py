@@ -146,6 +146,15 @@ def _add_train(subparsers: Any) -> None:
     parser.add_argument("--preset", default="balanced")
     parser.add_argument("--resume", type=_path)
     parser.add_argument(
+        "--branch-from",
+        type=_path,
+        help=(
+            "A training checkpoint from another run to continue in this new output "
+            "directory, with its optimizer, scheduler, scaler and RNG state. Only "
+            "--max-steps may differ from that run; every other setting must match."
+        ),
+    )
+    parser.add_argument(
         "--device", default=argparse.SUPPRESS, help="auto, cpu, cuda, or cuda:N"
     )
     parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
@@ -428,6 +437,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
 
     override_names = (
         "resume",
+        "branch_from",
         "device",
         "seed",
         "batch_size",

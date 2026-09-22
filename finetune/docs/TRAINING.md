@@ -258,6 +258,41 @@ only new state, and it rides in the checkpoint under `generator_ema`. A run
 that asks for an average and resumes from a checkpoint written without one is
 rejected rather than silently restarted from the base weights.
 
+## Branching a finished run
+
+`max_steps` is part of the identity, so a finished run cannot be resumed with a
+larger budget, and chaining through an export (`--base`) starts over: a fresh
+discriminator, empty optimizer moments, schedulers at zero, and the stage
+schedule replayed from step 0. To give a run more steps and keep everything it
+has learned, branch it into a new output directory:
+
+```bash
+inflect-adapt train \
+  --base exports/ja-base --dataset prepared/ja --preset balanced \
+  --max-steps 20000 \
+  --branch-from runs/ja-10k/checkpoints/adaptation-step-00010000.pth \
+  --output runs/ja-20k
+```
+
+Every other setting must match the parent's. The branch's identity is compared
+with the parent's field by field and only `run_id` and `options.max_steps` may
+differ; anything else is named and refused before the new directory is created.
+The parent is only read.
+
+The branch inherits the generator, discriminator, both optimizers, both
+schedulers, the AMP scaler, the RNG states, the step, the epoch and the stage.
+Before the first update it compares each of those with the parent file and
+writes `branch-check.json`; if any differs, it stops there. Its
+`run-identity.json` records the parent under `branch`, and the branch can itself
+be resumed with `--resume` like any run.
+
+One thing it cannot inherit is the data order. The loader's shuffle generator
+is rebuilt from `seed` in every process and is not in any checkpoint, so the
+branch replays the same sequence of permutations from the first one, and the
+parent's last partial epoch is not finished. A branch is therefore not an
+uninterrupted run to the new budget; record it as a restart of the shuffle
+order at the branch point.
+
 ## Checkpoint selection
 
 Validation intervals create fixed-seed held-out synthesis and loss
