@@ -497,3 +497,51 @@ def test_tally_refuses_a_verdict_from_another_page(tmp_path):
     tally = load_tally()
     with pytest.raises(SystemExit):
         tally.main(["--mapping", str(mapping), "--verdict", str(verdict)])
+
+
+def test_the_speaker_question_is_opt_in_and_absent_otherwise(page_module, tmp_path):
+    """Pages built without the flag must stay byte-comparable with older rounds."""
+
+    plain = build_small_page(page_module, tmp_path / "plain")
+    page = (plain / "index.html").read_text(encoding="utf-8")
+    assert 'data-field="speaker"' not in page
+    assert "speaker" not in json.loads((plain / "mapping.json").read_text(encoding="utf-8"))["axes"]
+
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / "asked", "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path / "asked", "anchor", identifiers, 0.4)
+    output = tmp_path / "asked" / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--speaker-axis",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    import html as _html
+
+    assert _html.escape(page_module.SPEAKER_AXIS["question"]) in page
+    # One question per track: two rows, each with the system, the anchor and a duplicate.
+    assert page.count('data-field="speaker"') == 6
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["axes"]["speaker"] == page_module.SPEAKER_AXIS
+    # It asks about the target voice, not about "the recording": the listener is
+    # not told which track the recording is.
+    assert "실물" not in page_module.SPEAKER_AXIS["question"]
+
+
+def test_the_tally_counts_the_speaker_answers_when_the_page_asked_for_them():
+    tally = load_tally()
+    assert tally.axis_names({"quality": {}, "defect": {}, "language": {}, "ringing": {}}) == (
+        "quality",
+        "defect",
+        "language",
+        "ringing",
+    )
+    assert tally.axis_names(
+        {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}}
+    )[-1] == "speaker"

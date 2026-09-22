@@ -110,6 +110,14 @@ RINGING_AXIS = {
     ],
 }
 RING_DETAIL = "링잉이 들린 트랙과 그 구간 (들리지 않았으면 '없음')"
+# Opt-in, and absent from every page built without --speaker-axis, so those
+# pages rebuild byte for byte. It asks about the target voice rather than about
+# "the recording", because the listener is not told which track that is.
+SPEAKER_AXIS = {
+    "label": "화자",
+    "question": "목표 화자의 목소리로 들리는가 (품질·링잉과 무관하게)",
+    "options": ["예", "아니오", "판단 어려움"],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -247,7 +255,19 @@ def assign_letters(names: list[str], seed_bytes: bytes, row: str) -> dict[str, s
     return {name: _LETTERS[index] for index, name in enumerate(order)}
 
 
-def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> str:
+def _speaker_select(row_id: str, letter: str) -> str:
+    return f"""
+          <label>{html.escape(SPEAKER_AXIS['question'])}
+            <select data-row="{html.escape(row_id)}" data-letter="{letter}" data-field="speaker">
+              <option value="">—</option>
+              {''.join(f'<option>{html.escape(option)}</option>' for option in SPEAKER_AXIS['options'])}
+            </select>
+          </label>"""
+
+
+def render_page(
+    page_key: str, rows: list[dict], axes: dict, note: str = "", speaker_axis: bool = False
+) -> str:
     """Return the standalone HTML page."""
     blocks: list[str] = []
     for row in rows:
@@ -280,7 +300,7 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
               <option value="">—</option>
               {''.join(f'<option>{html.escape(option)}</option>' for option in RINGING_AXIS['options'])}
             </select>
-          </label>
+          </label>{_speaker_select(row["id"], letter) if speaker_axis else ""}
         </div>"""
             for letter in letters
         )
@@ -454,6 +474,11 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="One extra sentence for this round's listener. The fixed wording is never changed.",
     )
+    parser.add_argument(
+        "--speaker-axis",
+        action="store_true",
+        help="Add a per-track question on whether the voice is the target speaker's.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -574,8 +599,13 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "one target for every track on the page",
         },
     }
+    if args.speaker_axis:
+        # Only when asked for: a page without it must embed exactly the axes it
+        # always did.
+        axes["speaker"] = SPEAKER_AXIS
     (output / "index.html").write_text(
-        render_page(page_key, page_rows, axes, args.note), encoding="utf-8"
+        render_page(page_key, page_rows, axes, args.note, speaker_axis=args.speaker_axis),
+        encoding="utf-8",
     )
     (output / "mapping.json").write_text(
         json.dumps(
