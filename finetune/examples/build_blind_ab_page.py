@@ -118,6 +118,19 @@ SPEAKER_AXIS = {
     "question": "목표 화자의 목소리로 들리는가 (품질·링잉과 무관하게)",
     "options": ["예", "아니오", "판단 어려움"],
 }
+# Opt-in in the same way (--clarity-axis). It asks how much of the given text
+# the listener could follow, so a change that trades ringing for swallowed or
+# missing words shows up as its own answer. 0 is the good end, as on the
+# defect axis.
+CLARITY_AXIS = {
+    "label": "명료성",
+    "question": "제시문 내용을 얼마나 알아들을 수 있는가",
+    "options": [
+        "0 · 전부 알아들을 수 있다",
+        "1 · 일부 낱말이 뭉개지거나 빠졌다",
+        "2 · 상당 부분을 알아듣기 어렵다",
+    ],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -255,18 +268,32 @@ def assign_letters(names: list[str], seed_bytes: bytes, row: str) -> dict[str, s
     return {name: _LETTERS[index] for index, name in enumerate(order)}
 
 
-def _speaker_select(row_id: str, letter: str) -> str:
+def _optional_select(axis: dict, field: str, row_id: str, letter: str) -> str:
     return f"""
-          <label>{html.escape(SPEAKER_AXIS['question'])}
-            <select data-row="{html.escape(row_id)}" data-letter="{letter}" data-field="speaker">
+          <label>{html.escape(axis['question'])}
+            <select data-row="{html.escape(row_id)}" data-letter="{letter}" data-field="{field}">
               <option value="">—</option>
-              {''.join(f'<option>{html.escape(option)}</option>' for option in SPEAKER_AXIS['options'])}
+              {''.join(f'<option>{html.escape(option)}</option>' for option in axis['options'])}
             </select>
           </label>"""
 
 
+def _optional_selects(row_id: str, letter: str, speaker_axis: bool, clarity_axis: bool) -> str:
+    selects = ""
+    if speaker_axis:
+        selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
+    if clarity_axis:
+        selects += _optional_select(CLARITY_AXIS, "clarity", row_id, letter)
+    return selects
+
+
 def render_page(
-    page_key: str, rows: list[dict], axes: dict, note: str = "", speaker_axis: bool = False
+    page_key: str,
+    rows: list[dict],
+    axes: dict,
+    note: str = "",
+    speaker_axis: bool = False,
+    clarity_axis: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
     blocks: list[str] = []
@@ -300,7 +327,7 @@ def render_page(
               <option value="">—</option>
               {''.join(f'<option>{html.escape(option)}</option>' for option in RINGING_AXIS['options'])}
             </select>
-          </label>{_speaker_select(row["id"], letter) if speaker_axis else ""}
+          </label>{_optional_selects(row["id"], letter, speaker_axis, clarity_axis)}
         </div>"""
             for letter in letters
         )
@@ -479,6 +506,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Add a per-track question on whether the voice is the target speaker's.",
     )
+    parser.add_argument(
+        "--clarity-axis",
+        action="store_true",
+        help="Add a per-track question on how much of the given text can be followed.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -603,8 +635,17 @@ def main(argv: list[str] | None = None) -> int:
         # Only when asked for: a page without it must embed exactly the axes it
         # always did.
         axes["speaker"] = SPEAKER_AXIS
+    if args.clarity_axis:
+        axes["clarity"] = CLARITY_AXIS
     (output / "index.html").write_text(
-        render_page(page_key, page_rows, axes, args.note, speaker_axis=args.speaker_axis),
+        render_page(
+            page_key,
+            page_rows,
+            axes,
+            args.note,
+            speaker_axis=args.speaker_axis,
+            clarity_axis=args.clarity_axis,
+        ),
         encoding="utf-8",
     )
     (output / "mapping.json").write_text(

@@ -545,3 +545,46 @@ def test_the_tally_counts_the_speaker_answers_when_the_page_asked_for_them():
     assert tally.axis_names(
         {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}}
     )[-1] == "speaker"
+
+
+def test_the_clarity_question_is_opt_in_and_absent_otherwise(page_module, tmp_path):
+    """A page built without --clarity-axis carries neither the question nor the axis."""
+
+    plain = build_small_page(page_module, tmp_path / "plain")
+    page = (plain / "index.html").read_text(encoding="utf-8")
+    assert 'data-field="clarity"' not in page
+    assert "clarity" not in json.loads((plain / "mapping.json").read_text(encoding="utf-8"))["axes"]
+
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / "asked", "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path / "asked", "anchor", identifiers, 0.4)
+    output = tmp_path / "asked" / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--speaker-axis",
+            "--clarity-axis",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    import html as _html
+
+    assert _html.escape(page_module.CLARITY_AXIS["question"]) in page
+    assert page.count('data-field="clarity"') == 6
+    # Both optional questions sit on every track, speaker first.
+    assert page.count('data-field="speaker"') == 6
+    assert page.index('data-field="speaker"') < page.index('data-field="clarity"')
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["axes"]["clarity"] == page_module.CLARITY_AXIS
+
+
+def test_the_tally_counts_the_clarity_answers_when_the_page_asked_for_them():
+    tally = load_tally()
+    assert tally.axis_names(
+        {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}, "clarity": {}}
+    )[-2:] == ("speaker", "clarity")
+    assert "clarity" not in tally.axis_names({"quality": {}, "defect": {}, "language": {}, "ringing": {}})
