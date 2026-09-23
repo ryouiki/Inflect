@@ -155,6 +155,14 @@ def _add_train(subparsers: Any) -> None:
         ),
     )
     parser.add_argument(
+        "--init-from",
+        type=_path,
+        help=(
+            "A training checkpoint whose generator and discriminator weights start this "
+            "new run. Its optimizer, scheduler, scaler, RNG state and step are not used."
+        ),
+    )
+    parser.add_argument(
         "--device", default=argparse.SUPPRESS, help="auto, cpu, cuda, or cuda:N"
     )
     parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
@@ -231,11 +239,12 @@ def _add_train(subparsers: Any) -> None:
     )
     parser.add_argument(
         "--decoder-polish-mode",
-        choices=("adversarial", "recon"),
+        choices=("adversarial", "recon", "posterior_decoder"),
         default=argparse.SUPPRESS,
         help=(
             "'recon' trains only the decoder during the polish stage, against "
-            "reconstruction losses with no discriminator."
+            "reconstruction losses with no discriminator. 'posterior_decoder' trains "
+            "the posterior encoder and the decoder together and holds the text side."
         ),
     )
     parser.add_argument(
@@ -438,6 +447,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
     override_names = (
         "resume",
         "branch_from",
+        "init_from",
         "device",
         "seed",
         "batch_size",

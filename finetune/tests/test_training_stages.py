@@ -41,7 +41,7 @@ def test_stage_boundaries_select_the_stage_for_the_next_step() -> None:
 def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -> None:
     """The parser spells these choices out again, so the two lists must agree."""
 
-    assert DECODER_POLISH_MODES == ("adversarial", "recon")
+    assert DECODER_POLISH_MODES == ("adversarial", "recon", "posterior_decoder")
     assert POSTERIOR_INITS == ("fresh", "inherit")
 
 
@@ -54,7 +54,7 @@ def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -
         ({"decoder_proximal_weight": -1e-9}, "decoder_proximal_weight must be non-negative."),
         (
             {"decoder_polish_mode": "reconstruction"},
-            "decoder_polish_mode must be one of ['adversarial', 'recon'].",
+            "decoder_polish_mode must be one of ['adversarial', 'recon', 'posterior_decoder'].",
         ),
         ({"posterior_init": "warm"}, "posterior_init must be one of ['fresh', 'inherit']."),
         ({"generator_ema_decay": 1.0}, "generator_ema_decay must be at least 0 and below 1."),

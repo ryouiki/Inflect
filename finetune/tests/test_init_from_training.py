@@ -1,0 +1,209 @@
+"""Starting a new recipe from another run's weights, and training the acoustic path alone.
+
+`--init-from` takes the generator and discriminator weights of a training
+checkpoint and nothing else, so the optimizer starts empty at step 0. The
+`posterior_decoder` polish mode trains the posterior encoder and the decoder
+together and holds the text side. These tests run the real loop on the stub
+release: a short parent, a run started from its weights, and the ways such a
+run must refuse or stop.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+import torch
+from test_training_loop_stub import build_corpus, make_options, metric_rows
+
+from inflect_finetune import training as training_module
+from inflect_finetune.checkpoint import sha256_file
+from inflect_finetune.cli import _run_train, build_parser
+from inflect_finetune.training import (
+    STAGE_DECODER,
+    TrainingOptions,
+    _adversarial_weight,
+    _discriminator_active,
+    _enabled_groups,
+    _public_options,
+    train_adaptation,
+)
+
+PARENT_SETTINGS: dict[str, object] = {
+    "posterior_warmup_steps": 1,
+    "decoder_unfreeze_step": 2,
+    "checkpoint_interval": 3,
+}
+PARENT_STEPS = 3
+#: The acoustic path from step 0: without these the new mode sits behind the
+#: parent's warm-up and unfreeze steps and never runs.
+ACOUSTIC: dict[str, object] = {
+    "posterior_warmup_steps": 0,
+    "decoder_unfreeze_step": 0,
+    "decoder_polish_mode": "posterior_decoder",
+    "decoder_lr_warmup_steps": 0,
+    "adversarial_gating": False,
+    "kl_loss_weight": 0.0,
+    "duration_loss_weight": 0.0,
+}
+TEXT_SIDE = ("enc_p.", "dp.", "flow.")
+
+
+@pytest.fixture(scope="module")
+def parent(tmp_path_factory: pytest.TempPathFactory):
+    root = tmp_path_factory.mktemp("init")
+    corpus = build_corpus(root / "corpus")
+    run = root / "parent"
+    train_adaptation(make_options(corpus, run, max_steps=PARENT_STEPS, **PARENT_SETTINGS))
+    checkpoint = run / "checkpoints" / f"adaptation-step-{PARENT_STEPS:08d}.pth"
+    assert checkpoint.is_file()
+    return corpus, checkpoint
+
+
+def _generator(path: Path) -> dict[str, torch.Tensor]:
+    return torch.load(path, map_location="cpu", weights_only=False)["generator"]
+
+
+def test_the_acoustic_mode_trains_the_posterior_and_decoder_with_the_discriminator_on() -> None:
+    options = TrainingOptions(
+        base_model="nano", prepared_dir=".", output_dir=".", **ACOUSTIC
+    )
+    assert _enabled_groups(options, STAGE_DECODER) == {"posterior", "decoder"}
+    assert _discriminator_active(options, STAGE_DECODER)
+    assert _adversarial_weight(options, 0, STAGE_DECODER) == 1.0
+
+
+def test_a_run_starts_from_the_weights_alone_and_moves_only_the_acoustic_path(
+    parent, tmp_path: Path
+) -> None:
+    corpus, checkpoint = parent
+    run = tmp_path / "acoustic"
+    train_adaptation(
+        make_options(
+            corpus, run, max_steps=3, checkpoint_interval=3, init_from=checkpoint, **ACOUSTIC
+        )
+    )
+    check = json.loads((run / "init-check.json").read_text(encoding="utf-8"))
+    assert check["passed"] is True
+    assert check["items"]["generator"]["ok"] and check["items"]["discriminator"]["ok"]
+    assert check["items"]["active_groups"]["trainable"] == ["decoder", "posterior"]
+    assert check["items"]["active_groups"]["stage"] == STAGE_DECODER
+    assert check["items"]["optimizer"]["entries"] == 0
+    assert check["items"]["adversarial"]["discriminator_active"] is True
+
+    identity = json.loads((run / "run-identity.json").read_text(encoding="utf-8"))
+    assert identity["init"]["checkpoint_sha256"] == sha256_file(checkpoint)
+    assert identity["init"]["parent_step"] == PARENT_STEPS
+    assert "optimizer_g" in identity["init"]["not_inherited"]
+    # The step counts from zero: nothing of the parent's position is taken.
+    assert metric_rows(run)[0]["step"] == 1
+    assert {row["stage"] for row in metric_rows(run)} == {STAGE_DECODER}
+
+    before = _generator(checkpoint)
+    after = _generator(run / "checkpoints" / "adaptation-step-00000003.pth")
+    text_side = [name for name in before if name.startswith(TEXT_SIDE)]
+    assert text_side and all(torch.equal(before[name], after[name]) for name in text_side)
+    for prefix in ("enc_q.", "dec."):
+        moved = [
+            name
+            for name in before
+            if name.startswith(prefix) and not torch.equal(before[name], after[name])
+        ]
+        assert moved, f"no {prefix} tensor moved"
+
+
+def test_a_run_started_from_weights_can_be_resumed(parent, tmp_path: Path) -> None:
+    corpus, checkpoint = parent
+    run = tmp_path / "resumable"
+    train_adaptation(
+        make_options(corpus, run, max_steps=3, checkpoint_interval=2, init_from=checkpoint, **ACOUSTIC)
+    )
+    rows = metric_rows(run)
+    # The resume rebuilds the `init` block from the same checkpoint; a run that
+    # stopped at step 2 carries on from there.
+    train_adaptation(
+        make_options(
+            corpus,
+            run,
+            max_steps=3,
+            checkpoint_interval=2,
+            init_from=checkpoint,
+            resume=run / "checkpoints" / "adaptation-step-00000002.pth",
+            **ACOUSTIC,
+        )
+    )
+    assert [row["step"] for row in metric_rows(run)][len(rows) :] == [3]
+
+
+def test_a_run_whose_groups_are_not_the_declared_ones_stops_before_the_first_update(
+    parent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clean load says nothing about which groups will train."""
+
+    corpus, checkpoint = parent
+    real_apply = training_module._apply_stage
+
+    def apply_everything(model, optimizer, options, stage, **kwargs):
+        real_apply(model, optimizer, options, stage, **kwargs)
+        for group in optimizer.param_groups:
+            for parameter in group["params"]:
+                parameter.requires_grad_(True)
+
+    monkeypatch.setattr(training_module, "_apply_stage", apply_everything)
+    broken = tmp_path / "broken"
+    with pytest.raises(RuntimeError, match=r"stopping before the first update.*'active_groups'"):
+        train_adaptation(make_options(corpus, broken, max_steps=3, init_from=checkpoint, **ACOUSTIC))
+    check = json.loads((broken / "init-check.json").read_text(encoding="utf-8"))
+    assert check["items"]["active_groups"]["trainable"] == ["decoder", "linguistic", "posterior"]
+    assert not (broken / "metrics.jsonl").exists() or not metric_rows(broken)
+
+
+def test_init_from_refuses_a_branch_and_an_inherited_posterior(parent, tmp_path: Path) -> None:
+    corpus, checkpoint = parent
+    with pytest.raises(ValueError, match="not both"):
+        train_adaptation(
+            make_options(
+                corpus, tmp_path / "a", max_steps=5, init_from=checkpoint, branch_from=checkpoint
+            )
+        )
+    with pytest.raises(ValueError, match="posterior_init='fresh'"):
+        train_adaptation(
+            make_options(
+                corpus, tmp_path / "b", max_steps=5, init_from=checkpoint, posterior_init="inherit"
+            )
+        )
+
+
+def test_the_init_flag_reaches_training_options_and_stays_out_of_the_options_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "inflect_finetune.training.train_adaptation",
+        lambda options: captured.setdefault("options", options),
+    )
+    weights = tmp_path / "parent.pth"
+    args = build_parser().parse_args(
+        [
+            "train",
+            "--base",
+            "nano",
+            "--dataset",
+            str(tmp_path / "prepared"),
+            "--output",
+            str(tmp_path / "run"),
+            "--init-from",
+            str(weights),
+            "--decoder-polish-mode",
+            "posterior_decoder",
+        ]
+    )
+    _run_train(args)
+    options = captured["options"]
+    assert isinstance(options, TrainingOptions)
+    assert Path(options.init_from) == weights
+    assert options.decoder_polish_mode == "posterior_decoder"
+    # A machine path: the weights are pinned by sha in the identity's own
+    # `init` block instead.
+    assert "init_from" not in _public_options(options)

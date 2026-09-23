@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import MISSING, asdict, dataclass, fields, replace
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import soundfile as sf
@@ -25,6 +25,7 @@ from .checkpoint import (
     load_posterior_sidecar,
     load_run_identity,
     load_training_checkpoint_header,
+    load_training_weights,
     resume_training_checkpoint,
     save_inference_checkpoint,
     save_training_checkpoint,
@@ -55,7 +56,7 @@ STAGE_POSTERIOR = "posterior_warmup"
 STAGE_ADAPT = "linguistic_adaptation"
 STAGE_DECODER = "decoder_polish"
 STAGES = (STAGE_POSTERIOR, STAGE_ADAPT, STAGE_DECODER)
-DECODER_POLISH_MODES = ("adversarial", "recon")
+DECODER_POLISH_MODES = ("adversarial", "recon", "posterior_decoder")
 POSTERIOR_INITS = ("fresh", "inherit")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
@@ -82,6 +83,11 @@ class TrainingOptions:
     # A training checkpoint from *another* run to continue in a new output
     # directory, carrying its full state. See `_establish_branch_identity`.
     branch_from: str | Path | None = None
+    # A training checkpoint whose generator and discriminator *weights* start a
+    # new run. Nothing else is taken from it -- no optimizer, scheduler, scaler,
+    # step or RNG state -- so this is a new recipe that begins where another
+    # run's weights ended, not a continuation. See `_init_block`.
+    init_from: str | Path | None = None
     device: str = "auto"
     seed: int = 1234
     batch_size: int = 2
@@ -200,6 +206,17 @@ def _validate_options(options: TrainingOptions) -> None:
         raise ValueError(
             "resume continues this run and branch_from starts a new one from another run's "
             "checkpoint; pass one of them, not both."
+        )
+    if options.init_from is not None and options.branch_from is not None:
+        raise ValueError(
+            "branch_from continues another run with its whole state and init_from starts a "
+            "new recipe from its weights alone; pass one of them, not both."
+        )
+    if options.init_from is not None and options.posterior_init == "inherit":
+        raise ValueError(
+            "init_from replaces the posterior with the checkpoint's own, so a posterior "
+            "sidecar would be pinned in the identity and then overwritten; use "
+            "posterior_init='fresh'."
         )
     positive_ints = (
         "batch_size",
@@ -338,6 +355,11 @@ def _enabled_groups(options: TrainingOptions, stage: str) -> set[str]:
         # flow keep moving would change those latents at the same time and
         # answer nothing.
         return {"decoder"}
+    if stage == STAGE_DECODER and options.decoder_polish_mode == "posterior_decoder":
+        # The acoustic path alone: real audio through the posterior into the
+        # decoder, trained together, with the text side held where it is. The
+        # discriminator stays on; which losses apply is the preset's business.
+        return {"posterior", "decoder"}
     return {
         STAGE_POSTERIOR: {"posterior"},
         STAGE_ADAPT: {"posterior", "linguistic"},
@@ -799,7 +821,15 @@ def _grad_scaler(enabled: bool):
 
 def _public_options(options: TrainingOptions) -> dict[str, Any]:
     payload = asdict(options)
-    for key in ("base_model", "prepared_dir", "output_dir", "preset", "resume", "branch_from"):
+    for key in (
+        "base_model",
+        "prepared_dir",
+        "output_dir",
+        "preset",
+        "resume",
+        "branch_from",
+        "init_from",
+    ):
         payload.pop(key, None)
     return json.loads(json.dumps(payload, sort_keys=True))
 
@@ -913,6 +943,7 @@ def _establish_run_identity(
     base_root: Path,
     prepared_dir: Path,
     posterior_path: Path | None = None,
+    init_block: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Path | None]:
     marker_path = output_dir / "run-identity.json"
     public_options = _public_options(options)
@@ -928,6 +959,8 @@ def _establish_run_identity(
             optimizer_schema=optimizer_schema,
             posterior_path=posterior_path,
         )
+        if init_block is not None:
+            identity["init"] = init_block
         write_run_identity(marker_path, identity)
         return identity, None
 
@@ -951,6 +984,11 @@ def _establish_run_identity(
     # interrupted could never be resumed.
     if "branch" in recorded:
         expected["branch"] = recorded["branch"]
+    # The weights a run started from are rebuilt from the same checkpoint on
+    # every resume, so swapping that file between sessions is refused like
+    # swapping the base.
+    if init_block is not None:
+        expected["init"] = init_block
     validate_run_identity(recorded, expected, source="output directory run marker")
     return expected, checkpoint
 
@@ -1065,6 +1103,89 @@ def _same_optimizer_moments(live: Mapping[str, Any], saved: Mapping[str, Any]) -
             ):
                 unequal.append(f"{index}.{field}")
     return {"ok": not unequal, "compared": compared, "unequal": unequal[:8]}
+
+
+#: What a run started with `init_from` takes from that checkpoint, by payload
+#: key, and what it leaves behind. The optimizer starts empty and the step at 0.
+INIT_INHERITED_STATE = ("generator", "discriminator")
+INIT_NOT_INHERITED = (
+    "optimizer_g",
+    "optimizer_d",
+    "scheduler_g",
+    "scheduler_d",
+    "scaler",
+    "rng_state",
+    "step",
+    "epoch",
+    "stage",
+)
+
+
+def _load_init_weights(
+    options: TrainingOptions, symbols: Sequence[str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read the `init_from` weights and the identity block that names them."""
+
+    path = Path(options.init_from).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"init_from checkpoint does not exist: {path}")
+    payload = load_training_weights(path)
+    if payload["symbols"] != list(symbols):
+        raise ValueError(
+            "init_from checkpoint was trained with a different symbol inventory than "
+            "this dataset."
+        )
+    block = {
+        "checkpoint_sha256": sha256_file(path),
+        "parent_run_id": str(payload["run_identity"].get("run_id", "")),
+        "parent_step": payload["step"],
+        "parent_stage": payload["stage"],
+        "inherited": list(INIT_INHERITED_STATE),
+        "not_inherited": list(INIT_NOT_INHERITED),
+    }
+    return block, payload
+
+
+def _init_check(
+    *,
+    generator: nn.Module,
+    discriminator: nn.Module,
+    payload: Mapping[str, Any],
+    optimizer_g: torch.optim.Optimizer,
+    options: TrainingOptions,
+    stage: str,
+) -> dict[str, Any]:
+    """Compare the state before the first update with what `init_from` promised.
+
+    The weights must be the checkpoint's bit for bit, the optimizer must be
+    empty, and the parameter groups that can move must be exactly the ones the
+    stage enables -- a clean load says nothing about which of them will train.
+    """
+
+    items: dict[str, dict[str, Any]] = {
+        "generator": _same_tensors(generator.state_dict(), payload["generator"]),
+        "discriminator": _same_tensors(discriminator.state_dict(), payload["discriminator"]),
+    }
+    expected = sorted(_enabled_groups(options, stage))
+    trainable = sorted(
+        group["name"]
+        for group in optimizer_g.param_groups
+        if any(parameter.requires_grad for parameter in group["params"])
+    )
+    items["active_groups"] = {
+        "ok": trainable == expected,
+        "expected": expected,
+        "trainable": trainable,
+        "stage": stage,
+    }
+    items["optimizer"] = {"ok": len(optimizer_g.state) == 0, "entries": len(optimizer_g.state)}
+    items["adversarial"] = {
+        # Recorded, not judged: which losses apply is the preset's choice.
+        "ok": True,
+        "weight_at_step_0": _adversarial_weight(options, 0, stage),
+        "discriminator_active": _discriminator_active(options, stage),
+    }
+    return {"passed": all(item["ok"] for item in items.values()), "items": items}
 
 
 def _branch_continuity_check(
@@ -1264,6 +1385,10 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
     base_root = resolve_base_model(options.base_model)
     posterior_path = _posterior_sidecar_path(options, base_root)
     branch_header: dict[str, Any] | None = None
+    init_block: dict[str, Any] | None = None
+    init_payload: dict[str, Any] | None = None
+    if options.init_from is not None:
+        init_block, init_payload = _load_init_weights(options, symbols)
     if options.branch_from is not None:
         run_identity, resume_checkpoint, checkpoint_identity, branch_header = (
             _establish_branch_identity(
@@ -1281,6 +1406,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             base_root=base_root,
             prepared_dir=prepared_dir,
             posterior_path=posterior_path,
+            init_block=init_block,
         )
         # A resume's checkpoint carries this run's own identity.
         checkpoint_identity = run_identity
@@ -1298,6 +1424,14 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         posterior_state=posterior_state,
     )
     compatibility.write(output_dir / "compatibility-report.json")
+    if init_payload is not None:
+        if resume_checkpoint is None:
+            # Before the anchor and EMA snapshots, so both start from these
+            # weights. A resume loads its own over them, so it skips this.
+            bundle.generator.load_state_dict(init_payload["generator"], strict=True)
+            bundle.discriminator.load_state_dict(init_payload["discriminator"], strict=True)
+        else:
+            init_payload = None
     bundle.generator.to(device)
     bundle.discriminator.to(device)
     # Both snapshots are taken from the warm-started base and before any resume
@@ -1404,6 +1538,27 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     "The branch does not continue its parent exactly; stopping before the "
                     f"first update. Failed: {failed}. See {output_dir / 'branch-check.json'}."
                 )
+
+    if init_payload is not None:
+        check = _init_check(
+            generator=bundle.generator,
+            discriminator=bundle.discriminator,
+            payload=init_payload,
+            optimizer_g=optimizer_g,
+            options=options,
+            stage=state.stage,
+        )
+        init_payload = None
+        (output_dir / "init-check.json").write_text(
+            json.dumps(check, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if not check["passed"]:
+            failed = sorted(name for name, item in check["items"].items() if not item["ok"])
+            raise RuntimeError(
+                "The run does not start from the init_from weights as declared; stopping "
+                f"before the first update. Failed: {failed}. See {output_dir / 'init-check.json'}."
+            )
 
     audio = AudioConfig(
         sampling_rate=int(bundle.config["data"]["sampling_rate"]),

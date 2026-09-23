@@ -494,6 +494,33 @@ def load_training_checkpoint_header(path: str | Path) -> dict[str, Any]:
     }
 
 
+def load_training_weights(path: str | Path) -> dict[str, Any]:
+    """Read the generator and discriminator weights of a training checkpoint.
+
+    Only the weights and the fields that say where they came from are kept; the
+    optimizer, scheduler, scaler and RNG state are dropped with the rest of the
+    payload.
+    """
+
+    payload = _torch_load(Path(path))
+    if not isinstance(payload, dict) or payload.get("format") != TRAINING_FORMAT:
+        raise ValueError(
+            "init_from reads an Inflect adaptation training checkpoint, not a base "
+            "release or an inference export."
+        )
+    missing = sorted({"generator", "discriminator", "step", "stage", "symbols"} - payload.keys())
+    if missing:
+        raise ValueError(f"init_from checkpoint is missing {missing}.")
+    return {
+        "generator": payload["generator"],
+        "discriminator": payload["discriminator"],
+        "run_identity": payload.get("run_identity") or {},
+        "step": int(payload["step"]),
+        "stage": str(payload["stage"]),
+        "symbols": list(payload["symbols"]),
+    }
+
+
 def write_run_identity(path: str | Path, identity: Mapping[str, Any]) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
