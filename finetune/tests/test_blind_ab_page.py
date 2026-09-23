@@ -588,3 +588,57 @@ def test_the_tally_counts_the_clarity_answers_when_the_page_asked_for_them():
         {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}, "clarity": {}}
     )[-2:] == ("speaker", "clarity")
     assert "clarity" not in tally.axis_names({"quality": {}, "defect": {}, "language": {}, "ringing": {}})
+
+
+def test_the_minimal_page_asks_three_questions_per_track_and_one_optional_memo(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path, "anchor", identifiers, 0.4)
+    output = tmp_path / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--minimal-axes",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    # Two rows, three tracks each (system, anchor, duplicate).
+    for field in ("quality", "ringing", "clarity"):
+        assert page.count(f'data-field="{field}"') == 6
+    for field in ("defect", "language", "speaker", "most_natural", "most_blurred", "comment",
+                  "ring_detail", "ring_order"):
+        assert f'data-field="{field}"' not in page
+    assert page.count('data-field="memo" data-optional="1"') == 2
+    # The memo is neither outlined nor counted as a blank.
+    assert '!element.value && !element.dataset.optional' in page
+    assert "메모는 선택이다." in page and "자유기술은 필수다." not in page
+    # No defect question on this page, so the ringing question does not ask
+    # for ringing to be counted there.
+    assert "결함 항목" not in page
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert set(axes) == {"quality", "ringing", "clarity", "memo", "levelling"}
+    assert axes["ringing"]["options"] == page_module.RINGING_AXIS["options"]
+
+
+def test_the_minimal_page_refuses_the_opt_in_axes(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="minimal-axes"):
+        page_module.main(
+            ["--system", f"early={first}", "--rows", "2", "--minimal-axes", "--speaker-axis",
+             "--output", str(tmp_path / "round")]
+        )
+
+
+def test_the_tally_reads_the_memo_and_older_verdicts_without_one():
+    tally = load_tally()
+    assert "memo" in tally.ROW_TEXT
+    assert tally.axis_names({"quality": {}, "ringing": {}, "clarity": {}}) == (
+        "quality",
+        "ringing",
+        "clarity",
+    )

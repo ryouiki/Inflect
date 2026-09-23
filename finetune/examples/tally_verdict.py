@@ -40,7 +40,7 @@ from pathlib import Path
 
 KNOWN_AXES = ("quality", "defect", "language", "ringing", "speaker", "clarity")
 FORCED = ("most_natural", "most_blurred")
-ROW_TEXT = ("comment", "ring_detail", "ring_order")
+ROW_TEXT = ("comment", "ring_detail", "ring_order", "memo")
 
 
 def axis_names(axes: dict) -> tuple[str, ...]:

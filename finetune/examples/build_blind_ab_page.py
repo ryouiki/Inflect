@@ -131,6 +131,12 @@ CLARITY_AXIS = {
         "2 · 상당 부분을 알아듣기 어렵다",
     ],
 }
+# The short page (--minimal-axes): three graded questions per track and one
+# optional memo per row. The ringing question drops its "also count it as a
+# defect" aside, because that page asks no defect question; a defect that is
+# not ringing goes in the memo. Every other page keeps RINGING_AXIS as it is.
+MINIMAL_RINGING_AXIS = {**RINGING_AXIS, "question": "금속성 울림이 있는가"}
+MEMO = "메모 (선택) — 화자 변화나 그 밖의 문제: 클릭·끊김·음소 누락 등"
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -294,8 +300,11 @@ def render_page(
     note: str = "",
     speaker_axis: bool = False,
     clarity_axis: bool = False,
+    minimal: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
+    if minimal:
+        return _render_minimal_page(page_key, rows, axes, note)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -362,6 +371,56 @@ def render_page(
       </section>"""
         )
 
+    return _page_shell(page_key, blocks, axes, note)
+
+
+def _minimal_selects(row_id: str, letter: str) -> str:
+    return _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter) + _optional_select(
+        CLARITY_AXIS, "clarity", row_id, letter
+    )
+
+
+def _render_minimal_page(page_key: str, rows: list[dict], axes: dict, note: str) -> str:
+    blocks: list[str] = []
+    for row in rows:
+        letters = sorted(row["letters"])
+        row_id = html.escape(row["id"])
+        tracks = "".join(
+            f"""
+        <div class="track">
+          <div class="letter">{letter}</div>
+          <audio controls preload="none" src="tracks/{row_id}/{letter}.wav"></audio>
+          <label>{html.escape(QUALITY_AXIS['label'])}
+            <select data-row="{row_id}" data-letter="{letter}" data-field="quality">
+              <option value="">—</option>
+              {''.join(f'<option>{html.escape(option)}</option>' for option in QUALITY_AXIS['options'])}
+            </select>
+          </label>{_minimal_selects(row["id"], letter)}
+        </div>"""
+            for letter in letters
+        )
+        blocks.append(
+            f"""
+      <section class="row" id="row-{row_id}">
+        <h2>{row_id}</h2>
+        {f'<p class="text">{html.escape(row["text"])}</p>' if row.get("text") else ''}
+        <div class="tracks">{tracks}</div>
+        <label class="free">{html.escape(MEMO)}
+          <textarea data-row="{row_id}" data-field="memo" data-optional="1" rows="2"></textarea>
+        </label>
+      </section>"""
+        )
+    return _page_shell(page_key, blocks, axes, note, minimal=True)
+
+
+def _page_shell(
+    page_key: str, blocks: list[str], axes: dict, note: str, *, minimal: bool = False
+) -> str:
+    # The minimal page's memo is optional: it is neither marked nor counted as
+    # a blank. Both fragments are empty on every other page, so their bytes do
+    # not change.
+    optional = " && !element.dataset.optional" if minimal else ""
+    required_text = "메모는 선택이다." if minimal else "자유기술은 필수다."
     axes_json = json.dumps(axes, ensure_ascii=False)
     return f"""<!doctype html>
 <meta charset="utf-8">
@@ -389,7 +448,7 @@ def render_page(
  라벨(A/B/C…)은 <b>행마다 다시 섞인다</b>. 라벨을 행 사이에서 합산하면 잡음을 합산하는 것이다 —
  귀속은 <code>mapping.json</code>에만 있고, 채점이 끝나기 전에는 열지 않는다.
  모든 트랙은 같은 RMS로 순수 게인 정렬됐다. 절대 점수는 <b>라운드 사이에 비교하지 않는다</b>;
- 이 페이지 안의 대비만 읽는다. 자유기술은 필수다.
+ 이 페이지 안의 대비만 읽는다. {required_text}
  {html.escape(note) if note else ''}
 </p>
 {''.join(blocks)}
@@ -422,7 +481,7 @@ const persist = () => {{
 // A blank is marked as it happens rather than announced after the download.
 const mark = () => {{
   document.querySelectorAll("[data-field]").forEach(element => {{
-    element.classList.toggle("blank", !element.value);
+    element.classList.toggle("blank", !element.value{optional});
   }});
 }};
 // Held only in memory: a reload always re-arms, and so does any edit, so the
@@ -449,7 +508,7 @@ document.getElementById("save").addEventListener("click", () => {{
       }} else {{
         entry[field] = element.value;
       }}
-      if (!element.value) missing += 1;
+      if (!element.value{optional}) missing += 1;
     }});
     rows[id] = entry;
   }});
@@ -507,12 +566,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Add a per-track question on whether the voice is the target speaker's.",
     )
     parser.add_argument(
+        "--minimal-axes",
+        action="store_true",
+        help=(
+            "Ask only naturalness, ringing and clarity per track and one optional memo per "
+            "row; no defect, language, forced choice, ranking or required free text."
+        ),
+    )
+    parser.add_argument(
         "--clarity-axis",
         action="store_true",
         help="Add a per-track question on how much of the given text can be followed.",
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.minimal_axes and (args.speaker_axis or args.clarity_axis):
+        raise SystemExit(
+            "--minimal-axes fixes its own questions (clarity included); speaker changes "
+            "go in its memo, so do not combine it with --speaker-axis or --clarity-axis."
+        )
 
     systems: dict[str, dict[str, Path]] = {}
     system_paths: dict[str, Path] = {}
@@ -631,6 +703,14 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "one target for every track on the page",
         },
     }
+    if args.minimal_axes:
+        axes = {
+            "quality": QUALITY_AXIS,
+            "ringing": MINIMAL_RINGING_AXIS,
+            "clarity": CLARITY_AXIS,
+            "memo": MEMO,
+            "levelling": axes["levelling"],
+        }
     if args.speaker_axis:
         # Only when asked for: a page without it must embed exactly the axes it
         # always did.
@@ -645,6 +725,7 @@ def main(argv: list[str] | None = None) -> int:
             args.note,
             speaker_axis=args.speaker_axis,
             clarity_axis=args.clarity_axis,
+            minimal=args.minimal_axes,
         ),
         encoding="utf-8",
     )
