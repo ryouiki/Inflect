@@ -207,3 +207,41 @@ def test_the_init_flag_reaches_training_options_and_stays_out_of_the_options_ide
     # A machine path: the weights are pinned by sha in the identity's own
     # `init` block instead.
     assert "init_from" not in _public_options(options)
+
+
+def test_a_run_started_from_weights_can_be_branched_and_the_branch_resumed(
+    parent, tmp_path: Path
+) -> None:
+    """The `init` lineage travels with a branch instead of blocking it."""
+
+    corpus, checkpoint = parent
+    first = tmp_path / "first"
+    train_adaptation(
+        make_options(corpus, first, max_steps=2, checkpoint_interval=2, init_from=checkpoint, **ACOUSTIC)
+    )
+    branch = tmp_path / "branch"
+    first_checkpoint = first / "checkpoints" / "adaptation-step-00000002.pth"
+    train_adaptation(
+        make_options(
+            corpus, branch, max_steps=5, checkpoint_interval=2, branch_from=first_checkpoint, **ACOUSTIC
+        )
+    )
+    check = json.loads((branch / "branch-check.json").read_text(encoding="utf-8"))
+    assert check["passed"] is True
+    recorded = json.loads((first / "run-identity.json").read_text(encoding="utf-8"))
+    identity = json.loads((branch / "run-identity.json").read_text(encoding="utf-8"))
+    assert identity["init"] == recorded["init"]
+    assert identity["branch"]["differences"] == ["options.max_steps", "run_id"]
+    rows = metric_rows(branch)
+    assert [row["step"] for row in rows] == [3, 4, 5]
+    train_adaptation(
+        make_options(
+            corpus,
+            branch,
+            max_steps=5,
+            checkpoint_interval=2,
+            resume=branch / "checkpoints" / "adaptation-step-00000004.pth",
+            **ACOUSTIC,
+        )
+    )
+    assert [row["step"] for row in metric_rows(branch)][len(rows) :] == [5]

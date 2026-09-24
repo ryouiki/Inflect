@@ -989,6 +989,10 @@ def _establish_run_identity(
     # swapping the base.
     if init_block is not None:
         expected["init"] = init_block
+    elif "branch" in recorded and "init" in recorded:
+        # A branch of an init run carries its parent's `init` without having an
+        # init_from of its own; like `branch`, it comes from the marker.
+        expected["init"] = recorded["init"]
     validate_run_identity(recorded, expected, source="output directory run marker")
     return expected, checkpoint
 
@@ -1056,6 +1060,12 @@ def _establish_branch_identity(
         optimizer_schema=_optimizer_schema(options),
         posterior_path=posterior_path,
     )
+    # A parent that was itself started from another run's weights records that
+    # under `init`. The branch continues the same weights, so the lineage comes
+    # with it; rebuilding from options alone would drop it and the field
+    # comparison would refuse the branch.
+    if "init" in header["run_identity"]:
+        identity["init"] = header["run_identity"]["init"]
     differences = validate_branch_identity(header["run_identity"], identity)
     parent_run_dir = parent.parent.parent
     identity["branch"] = {
