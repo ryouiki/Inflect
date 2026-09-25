@@ -245,3 +245,53 @@ def test_a_run_started_from_weights_can_be_branched_and_the_branch_resumed(
         )
     )
     assert [row["step"] for row in metric_rows(branch)][len(rows) :] == [5]
+
+
+RECON_ONLY = {**ACOUSTIC, "decoder_polish_mode": "posterior_decoder_recon", "stft_loss_weight": 3.0}
+
+
+def test_the_reconstruction_only_acoustic_mode_leaves_the_discriminator_alone() -> None:
+    options = TrainingOptions(base_model="nano", prepared_dir=".", output_dir=".", **RECON_ONLY)
+    assert _enabled_groups(options, STAGE_DECODER) == {"posterior", "decoder"}
+    assert not _discriminator_active(options, STAGE_DECODER)
+    assert _adversarial_weight(options, 0, STAGE_DECODER) == 0.0
+
+
+def test_a_reconstruction_only_run_trains_on_mel_and_stft_alone(parent, tmp_path: Path) -> None:
+    """No adversarial or feature term, no discriminator update, no discriminator schedule."""
+
+    corpus, checkpoint = parent
+    run = tmp_path / "recon-only"
+    train_adaptation(
+        make_options(corpus, run, max_steps=3, checkpoint_interval=3, init_from=checkpoint, **RECON_ONLY)
+    )
+    check = json.loads((run / "init-check.json").read_text(encoding="utf-8"))
+    assert check["passed"] is True
+    assert check["items"]["active_groups"]["trainable"] == ["decoder", "posterior"]
+    assert check["items"]["adversarial"]["weight_at_step_0"] == 0.0
+    assert check["items"]["adversarial"]["discriminator_active"] is False
+
+    rows = metric_rows(run)
+    assert rows
+    for row in rows:
+        assert row["adversarial_weight"] == 0.0
+        assert row["loss_generator"] is None and row["loss_feature"] is None
+        expected = 45.0 * row["loss_mel"] + 3.0 * row["loss_stft"]
+        assert row["loss_g"] == pytest.approx(expected, rel=1e-4)
+
+    parent_payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload = torch.load(run / "checkpoints" / "adaptation-step-00000003.pth", map_location="cpu", weights_only=False)
+    assert all(
+        torch.equal(parent_payload["discriminator"][name], payload["discriminator"][name])
+        for name in parent_payload["discriminator"]
+    )
+    # A fresh optimizer's schedule starts at 0 and, with no discriminator
+    # update, the discriminator's stays there.
+    assert payload["scheduler_d"]["last_epoch"] == 0
+    assert payload["scheduler_g"]["last_epoch"] == 3
+    for prefix in ("enc_q.", "dec."):
+        assert any(
+            not torch.equal(parent_payload["generator"][name], payload["generator"][name])
+            for name in payload["generator"]
+            if name.startswith(prefix)
+        )

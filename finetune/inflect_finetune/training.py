@@ -56,7 +56,10 @@ STAGE_POSTERIOR = "posterior_warmup"
 STAGE_ADAPT = "linguistic_adaptation"
 STAGE_DECODER = "decoder_polish"
 STAGES = (STAGE_POSTERIOR, STAGE_ADAPT, STAGE_DECODER)
-DECODER_POLISH_MODES = ("adversarial", "recon", "posterior_decoder")
+DECODER_POLISH_MODES = ("adversarial", "recon", "posterior_decoder", "posterior_decoder_recon")
+#: Polish modes that train without the discriminator: no adversarial or
+#: feature-matching term, and no discriminator update.
+RECONSTRUCTION_ONLY_MODES = ("recon", "posterior_decoder_recon")
 POSTERIOR_INITS = ("fresh", "inherit")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
@@ -355,10 +358,13 @@ def _enabled_groups(options: TrainingOptions, stage: str) -> set[str]:
         # flow keep moving would change those latents at the same time and
         # answer nothing.
         return {"decoder"}
-    if stage == STAGE_DECODER and options.decoder_polish_mode == "posterior_decoder":
+    if stage == STAGE_DECODER and options.decoder_polish_mode in (
+        "posterior_decoder",
+        "posterior_decoder_recon",
+    ):
         # The acoustic path alone: real audio through the posterior into the
         # decoder, trained together, with the text side held where it is. The
-        # discriminator stays on; which losses apply is the preset's business.
+        # two modes differ only in whether the discriminator takes part.
         return {"posterior", "decoder"}
     return {
         STAGE_POSTERIOR: {"posterior"},
@@ -422,7 +428,7 @@ def _adversarial_weight(options: TrainingOptions, step: int, stage: str) -> floa
     trains under its own rule in both windows.
     """
 
-    if stage == STAGE_DECODER and options.decoder_polish_mode == "recon":
+    if stage == STAGE_DECODER and options.decoder_polish_mode in RECONSTRUCTION_ONLY_MODES:
         return 0.0
     if options.warmup_adversarial_gating and stage == STAGE_POSTERIOR:
         return 0.0
@@ -455,7 +461,7 @@ def _decoder_lr_scale(options: TrainingOptions, step: int, stage: str) -> float:
 
 
 def _discriminator_active(options: TrainingOptions, stage: str) -> bool:
-    return not (stage == STAGE_DECODER and options.decoder_polish_mode == "recon")
+    return not (stage == STAGE_DECODER and options.decoder_polish_mode in RECONSTRUCTION_ONLY_MODES)
 
 
 @contextmanager
@@ -1718,7 +1724,11 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             optimizer_g.zero_grad(set_to_none=True)
             optimizer_d.zero_grad(set_to_none=True)
             scheduler_g.step()
-            scheduler_d.step()
+            if train_discriminator or options.decoder_polish_mode != "posterior_decoder_recon":
+                # A discriminator that is never stepped keeps its schedule too.
+                # Only the new mode does this: the older `recon` mode's saved
+                # runs advanced it, and changing that would break their resume.
+                scheduler_d.step()
             state.step += 1
             if generator_ema is not None:
                 _ema_update(

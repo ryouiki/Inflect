@@ -239,12 +239,13 @@ def _add_train(subparsers: Any) -> None:
     )
     parser.add_argument(
         "--decoder-polish-mode",
-        choices=("adversarial", "recon", "posterior_decoder"),
+        choices=("adversarial", "recon", "posterior_decoder", "posterior_decoder_recon"),
         default=argparse.SUPPRESS,
         help=(
             "'recon' trains only the decoder during the polish stage, against "
             "reconstruction losses with no discriminator. 'posterior_decoder' trains "
-            "the posterior encoder and the decoder together and holds the text side."
+            "the posterior encoder and the decoder together and holds the text side; "
+            "'posterior_decoder_recon' does the same without the discriminator."
         ),
     )
     parser.add_argument(
