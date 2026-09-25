@@ -642,3 +642,23 @@ def test_the_tally_reads_the_memo_and_older_verdicts_without_one():
         "ringing",
         "clarity",
     )
+
+
+def test_the_short_page_asks_ringing_and_content_per_track_and_one_optional_memo(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path, "anchor", identifiers, 0.4)
+    output = tmp_path / "round"
+    assert page_module.main(
+        ["--system", f"early={first}", "--anchor", str(anchor), "--rows", "2", "--catch-rows", "1",
+         "--short-axes", "--output", str(output)]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    tracks = page.count('data-field="ringing"')
+    assert tracks == page.count('data-field="content"') and tracks >= 5
+    for field in ("quality", "defect", "language", "clarity", "speaker", "comment", "ring_order", "most_natural"):
+        assert f'data-field="{field}"' not in page
+    assert page.count('data-field="memo" data-optional="1"') == 2
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert set(axes) == {"ringing", "content", "memo", "levelling"}
+    assert load_tally().axis_names(axes) == ("ringing", "content")

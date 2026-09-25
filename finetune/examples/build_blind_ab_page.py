@@ -137,6 +137,14 @@ CLARITY_AXIS = {
 # not ringing goes in the memo. Every other page keeps RINGING_AXIS as it is.
 MINIMAL_RINGING_AXIS = {**RINGING_AXIS, "question": "금속성 울림이 있는가"}
 MEMO = "메모 (선택) — 화자 변화나 그 밖의 문제: 클릭·끊김·음소 누락 등"
+# The shortest page (--short-axes), for the one listening check a quantitative
+# batch ends with: ringing and whether words went missing or mushy, per track,
+# and the same optional memo. No naturalness grade.
+CONTENT_AXIS = {
+    "label": "내용",
+    "question": "빠지거나 뭉개진 낱말이 있는가",
+    "options": ["없음", "있음"],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -301,10 +309,11 @@ def render_page(
     speaker_axis: bool = False,
     clarity_axis: bool = False,
     minimal: bool = False,
+    short: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
-    if minimal:
-        return _render_minimal_page(page_key, rows, axes, note)
+    if minimal or short:
+        return _render_minimal_page(page_key, rows, axes, note, short=short)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -380,12 +389,28 @@ def _minimal_selects(row_id: str, letter: str) -> str:
     )
 
 
-def _render_minimal_page(page_key: str, rows: list[dict], axes: dict, note: str) -> str:
+def _short_track(row_id: str, letter: str) -> str:
+    selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter) + _optional_select(
+        CONTENT_AXIS, "content", row_id, letter
+    )
+    return f"""
+        <div class="track">
+          <div class="letter">{letter}</div>
+          <audio controls preload="none" src="tracks/{html.escape(row_id)}/{letter}.wav"></audio>{selects}
+        </div>"""
+
+
+def _render_minimal_page(
+    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False
+) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
-        tracks = "".join(
+        if short:
+            tracks = "".join(_short_track(row["id"], letter) for letter in letters)
+        else:
+            tracks = "".join(
             f"""
         <div class="track">
           <div class="letter">{letter}</div>
@@ -566,6 +591,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Add a per-track question on whether the voice is the target speaker's.",
     )
     parser.add_argument(
+        "--short-axes",
+        action="store_true",
+        help=(
+            "Ask only ringing and missing/mushy words per track, with one optional memo "
+            "per row: the listening check at the end of a quantitative batch."
+        ),
+    )
+    parser.add_argument(
         "--minimal-axes",
         action="store_true",
         help=(
@@ -580,6 +613,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.short_axes and (args.minimal_axes or args.speaker_axis or args.clarity_axis):
+        raise SystemExit("--short-axes fixes its own questions; do not combine it with other axis flags.")
     if args.minimal_axes and (args.speaker_axis or args.clarity_axis):
         raise SystemExit(
             "--minimal-axes fixes its own questions (clarity included); speaker changes "
@@ -703,6 +738,13 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "one target for every track on the page",
         },
     }
+    if args.short_axes:
+        axes = {
+            "ringing": MINIMAL_RINGING_AXIS,
+            "content": CONTENT_AXIS,
+            "memo": MEMO,
+            "levelling": axes["levelling"],
+        }
     if args.minimal_axes:
         axes = {
             "quality": QUALITY_AXIS,
@@ -726,6 +768,7 @@ def main(argv: list[str] | None = None) -> int:
             speaker_axis=args.speaker_axis,
             clarity_axis=args.clarity_axis,
             minimal=args.minimal_axes,
+            short=args.short_axes,
         ),
         encoding="utf-8",
     )
