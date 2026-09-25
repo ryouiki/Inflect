@@ -145,6 +145,20 @@ CONTENT_AXIS = {
     "question": "빠지거나 뭉개진 낱말이 있는가",
     "options": ["없음", "있음"],
 }
+# Opt-in on the shortest page only (--short-axes --click-axis): a click or
+# crackle graded apart from the sustained metallic ringing, for a round that
+# asks whether one fault went down without the other coming back. Its kind
+# and where it is heard go in the memo, through --note.
+CLICK_AXIS = {
+    "label": "클릭 · 자글거림",
+    "question": "짧은 충격음이나 자글거리는 소리가 있는가",
+    "options": [
+        "0 · 없음",
+        "1 · 주의해 들으면 있다",
+        "2 · 뚜렷하다",
+        "3 · 말소리를 덮는다",
+    ],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -310,10 +324,11 @@ def render_page(
     clarity_axis: bool = False,
     minimal: bool = False,
     short: bool = False,
+    click_axis: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
     if minimal or short:
-        return _render_minimal_page(page_key, rows, axes, note, short=short)
+        return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -389,10 +404,11 @@ def _minimal_selects(row_id: str, letter: str) -> str:
     )
 
 
-def _short_track(row_id: str, letter: str) -> str:
-    selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter) + _optional_select(
-        CONTENT_AXIS, "content", row_id, letter
-    )
+def _short_track(row_id: str, letter: str, click: bool = False) -> str:
+    selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
+    if click:
+        selects += _optional_select(CLICK_AXIS, "click", row_id, letter)
+    selects += _optional_select(CONTENT_AXIS, "content", row_id, letter)
     return f"""
         <div class="track">
           <div class="letter">{letter}</div>
@@ -401,14 +417,14 @@ def _short_track(row_id: str, letter: str) -> str:
 
 
 def _render_minimal_page(
-    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False
+    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False
 ) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
         if short:
-            tracks = "".join(_short_track(row["id"], letter) for letter in letters)
+            tracks = "".join(_short_track(row["id"], letter, click) for letter in letters)
         else:
             tracks = "".join(
             f"""
@@ -599,6 +615,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--click-axis",
+        action="store_true",
+        help="With --short-axes only: also grade clicks or crackle per track, apart from the ringing.",
+    )
+    parser.add_argument(
         "--minimal-axes",
         action="store_true",
         help=(
@@ -613,6 +634,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.click_axis and not args.short_axes:
+        raise SystemExit("--click-axis belongs to the short page; use it with --short-axes.")
     if args.short_axes and (args.minimal_axes or args.speaker_axis or args.clarity_axis):
         raise SystemExit("--short-axes fixes its own questions; do not combine it with other axis flags.")
     if args.minimal_axes and (args.speaker_axis or args.clarity_axis):
@@ -741,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.short_axes:
         axes = {
             "ringing": MINIMAL_RINGING_AXIS,
+            **({"click": CLICK_AXIS} if args.click_axis else {}),
             "content": CONTENT_AXIS,
             "memo": MEMO,
             "levelling": axes["levelling"],
@@ -769,6 +793,7 @@ def main(argv: list[str] | None = None) -> int:
             clarity_axis=args.clarity_axis,
             minimal=args.minimal_axes,
             short=args.short_axes,
+            click_axis=args.click_axis,
         ),
         encoding="utf-8",
     )

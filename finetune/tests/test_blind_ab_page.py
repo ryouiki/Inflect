@@ -662,3 +662,72 @@ def test_the_short_page_asks_ringing_and_content_per_track_and_one_optional_memo
     axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
     assert set(axes) == {"ringing", "content", "memo", "levelling"}
     assert load_tally().axis_names(axes) == ("ringing", "content")
+
+
+def _built(module, tmp_path, name, extra, monkeypatch):
+    """Build one short page with a fixed letter seed; return its page bytes and path-free mapping."""
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / name, "early", identifiers, 0.2)
+    second = evaluate_output(tmp_path / name, "late", identifiers, 0.3)
+    output = tmp_path / name / "round"
+    monkeypatch.setattr(module.os, "urandom", lambda count: bytes(range(count)))
+    assert module.main(
+        ["--system", f"early={first}", "--system", f"late={second}", "--rows", "3", "--catch-rows", "1",
+         "--catch-system", "early", "--short-axes", *extra, "--output", str(output)]
+    ) == 0
+    mapping = (output / "mapping.json").read_text(encoding="utf-8").replace(str(tmp_path / name), "<tmp>")
+    return (output / "index.html").read_bytes(), mapping
+
+
+def test_the_short_page_is_unchanged_without_the_click_axis(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the page builder of the Q2 round (commit fabe711) wrote."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "fabe711:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_q2.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_q2", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    assert _built(old, tmp_path, "old", [], monkeypatch) == _built(page_module, tmp_path, "new", [], monkeypatch)
+
+
+def test_the_click_axis_adds_one_graded_question_per_track(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "click", ["--click-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="click"') == text.count('data-field="content"') and tracks >= 7
+    axes = json.loads(mapping)["axes"]
+    assert list(axes) == ["ringing", "click", "content", "memo", "levelling"]
+    assert axes["click"]["options"][0] == "0 · 없음"
+    assert load_tally().axis_names(axes) == ("ringing", "content", "click")
+
+
+def test_the_click_axis_needs_the_short_page(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--click-axis", "--output", str(tmp_path / "round")])
+    with pytest.raises(SystemExit, match="click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--minimal-axes", "--click-axis",
+                          "--output", str(tmp_path / "round2")])
+
+
+def test_the_tally_shows_a_short_page_duplicate_on_every_question(tmp_path, capsys):
+    tally = load_tally()
+    axes = {"ringing": {"options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"]},
+            "click": {"options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"]},
+            "content": {"options": ["없음", "있음"]}}
+    mapping = {"page_key": "p", "axes": axes, "catch_rows": ["0057"],
+               "rows": {"0057": {"A": "s0", "B": "s1", "C": "s0#catch"}}}
+    verdict = {"page_key": "p", "rows": {"0057": {"tracks": {
+        "A": {"ringing": "1 · 주의해 들으면 있다", "click": "2 · 뚜렷하다", "content": "없음"},
+        "B": {"ringing": "1 · 주의해 들으면 있다", "click": "0 · 없음", "content": "없음"},
+        "C": {"ringing": "1 · 주의해 들으면 있다", "click": "1 · 주의해 들으면 있다", "content": "없음"}}}}}
+    (tmp_path / "m.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "v.json").write_text(json.dumps(verdict, ensure_ascii=False), encoding="utf-8")
+    assert tally.main(["--mapping", str(tmp_path / "m.json"), "--verdict", str(tmp_path / "v.json")]) == 0
+    out = capsys.readouterr().out
+    assert "catch row 0057 · s0 appears as ['A', 'C']" in out
+    assert "옵션 단차 1단" in out and "click" in out and "ringing" in out
