@@ -137,6 +137,9 @@ CLARITY_AXIS = {
 # not ringing goes in the memo. Every other page keeps RINGING_AXIS as it is.
 MINIMAL_RINGING_AXIS = {**RINGING_AXIS, "question": "금속성 울림이 있는가"}
 MEMO = "메모 (선택) — 화자 변화나 그 밖의 문제: 클릭·끊김·음소 누락 등"
+# The memo label of a page that asks the pitch or noise question: it points the listener at what the
+# note sends to the memo (where a pitch or voice problem is heard) instead of clicks.
+PITCH_NOISE_MEMO = "메모 (선택) — 음높이 · 발성 이상, 잡음, 화자 변화 등을 위치와 함께"
 # The shortest page (--short-axes), for the one listening check a quantitative
 # batch ends with: ringing and whether words went missing or mushy, per track,
 # and the same optional memo. No naturalness grade.
@@ -478,17 +481,19 @@ def _render_minimal_page(
         <h2>{row_id}</h2>
         {f'<p class="text">{html.escape(row["text"])}</p>' if row.get("text") else ''}
         <div class="tracks">{tracks}</div>
-        <label class="free">{html.escape(MEMO)}
+        <label class="free">{html.escape(PITCH_NOISE_MEMO if pitch or noise else MEMO)}
           <textarea data-row="{row_id}" data-field="memo" data-optional="1" rows="2"></textarea>
         </label>
       </section>"""
         )
-    return _page_shell(page_key, blocks, axes, note, minimal=True)
+    return _page_shell(page_key, blocks, axes, note, minimal=True, chance="우연 변동" if noise else "잡음")
 
 
 def _page_shell(
-    page_key: str, blocks: list[str], axes: dict, note: str, *, minimal: bool = False
+    page_key: str, blocks: list[str], axes: dict, note: str, *, minimal: bool = False, chance: str = "잡음"
 ) -> str:
+    # `chance` names what summing labels across rows adds up. A page with the noise question uses
+    # another word, so the preamble does not reuse that question's label in its statistical sense.
     # The minimal page's memo is optional: it is neither marked nor counted as
     # a blank. Both fragments are empty on every other page, so their bytes do
     # not change.
@@ -518,7 +523,7 @@ def _page_shell(
 </style>
 <h1>블라인드 청취 · {html.escape(page_key)}</h1>
 <p class="note">
- 라벨(A/B/C…)은 <b>행마다 다시 섞인다</b>. 라벨을 행 사이에서 합산하면 잡음을 합산하는 것이다 —
+ 라벨(A/B/C…)은 <b>행마다 다시 섞인다</b>. 라벨을 행 사이에서 합산하면 {chance}을 합산하는 것이다 —
  귀속은 <code>mapping.json</code>에만 있고, 채점이 끝나기 전에는 열지 않는다.
  모든 트랙은 같은 RMS로 순수 게인 정렬됐다. 절대 점수는 <b>라운드 사이에 비교하지 않는다</b>;
  이 페이지 안의 대비만 읽는다. {required_text}
@@ -816,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
             **({"click": CLICK_AXIS} if args.click_axis else {}),
             "content": CONTENT_AXIS,
             **({"noise": NOISE_AXIS} if args.noise_axis else {}),
-            "memo": MEMO,
+            "memo": PITCH_NOISE_MEMO if args.pitch_axis or args.noise_axis else MEMO,
             "levelling": axes["levelling"],
         }
     if args.minimal_axes:

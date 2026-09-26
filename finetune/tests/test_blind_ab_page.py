@@ -797,6 +797,10 @@ def test_the_pitch_and_noise_axes_join_the_short_page_in_a_fixed_order(page_modu
     assert axes["pitch"]["question"] == "비정상적인 음높이 튐 · 뒤집힘 · 떨림이 있는가"
     assert axes["noise"]["options"] == ["없음", "있음"]
     assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "pitch", "noise")
+    # the memo points at pitch and voice problems, and the preamble does not reuse the noise label
+    assert axes["memo"] == page_module.PITCH_NOISE_MEMO
+    assert text.count(f'<label class="free">{page_module.PITCH_NOISE_MEMO}') == 3
+    assert "우연 변동을 합산하는 것이다" in text and "잡음을 합산하는 것이다" not in text
 
 
 def test_the_pitch_and_noise_axes_need_the_short_page_and_noise_replaces_click(page_module, tmp_path):
