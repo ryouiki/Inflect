@@ -328,7 +328,8 @@ def render_page(
 ) -> str:
     """Return the standalone HTML page."""
     if minimal or short:
-        return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis)
+        return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis,
+                                    speaker=short and speaker_axis)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -404,11 +405,14 @@ def _minimal_selects(row_id: str, letter: str) -> str:
     )
 
 
-def _short_track(row_id: str, letter: str, click: bool = False) -> str:
+def _short_track(row_id: str, letter: str, click: bool = False, speaker: bool = False) -> str:
     selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
     if click:
         selects += _optional_select(CLICK_AXIS, "click", row_id, letter)
     selects += _optional_select(CONTENT_AXIS, "content", row_id, letter)
+    if speaker:
+        # After the existing questions, so a page without it keeps their order and bytes.
+        selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
     return f"""
         <div class="track">
           <div class="letter">{letter}</div>
@@ -417,14 +421,15 @@ def _short_track(row_id: str, letter: str, click: bool = False) -> str:
 
 
 def _render_minimal_page(
-    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False
+    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False,
+    speaker: bool = False,
 ) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
         if short:
-            tracks = "".join(_short_track(row["id"], letter, click) for letter in letters)
+            tracks = "".join(_short_track(row["id"], letter, click, speaker) for letter in letters)
         else:
             tracks = "".join(
             f"""
@@ -636,7 +641,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.click_axis and not args.short_axes:
         raise SystemExit("--click-axis belongs to the short page; use it with --short-axes.")
-    if args.short_axes and (args.minimal_axes or args.speaker_axis or args.clarity_axis):
+    if args.short_axes and (args.minimal_axes or args.clarity_axis):
+        # --speaker-axis may join the short page (a speaker question for a page that compares
+        # different models); every other axis flag stays refused.
         raise SystemExit("--short-axes fixes its own questions; do not combine it with other axis flags.")
     if args.minimal_axes and (args.speaker_axis or args.clarity_axis):
         raise SystemExit(

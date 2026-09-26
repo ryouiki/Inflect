@@ -731,3 +731,34 @@ def test_the_tally_shows_a_short_page_duplicate_on_every_question(tmp_path, caps
     out = capsys.readouterr().out
     assert "catch row 0057 · s0 appears as ['A', 'C']" in out
     assert "옵션 단차 1단" in out and "click" in out and "ringing" in out
+
+
+def test_the_short_click_page_is_unchanged_without_the_speaker_axis(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder wrote before the speaker question could join the short page (4fc5a19)."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "4fc5a19:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_q2i.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_q2i", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    assert _built(old, tmp_path, "old", ["--click-axis"], monkeypatch) == _built(page_module, tmp_path, "new", ["--click-axis"], monkeypatch)
+
+
+def test_the_short_page_takes_a_speaker_question_last(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "spk", ["--click-axis", "--speaker-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="speaker"') == text.count('data-field="click"') >= 7
+    first_track = text[text.index('data-field="ringing"'):]
+    assert first_track.index('data-field="content"') < first_track.index('data-field="speaker"')
+    axes = json.loads(mapping)["axes"]
+    assert axes["speaker"] == page_module.SPEAKER_AXIS
+    assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "click")
+    with pytest.raises(SystemExit, match="short-axes"):
+        identifiers = [f"{index:04d}" for index in range(1, 5)]
+        first = evaluate_output(tmp_path / "x", "early", identifiers, 0.2)
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--clarity-axis",
+                          "--output", str(tmp_path / "x" / "round")])
