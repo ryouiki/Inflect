@@ -762,3 +762,49 @@ def test_the_short_page_takes_a_speaker_question_last(page_module, tmp_path, mon
         first = evaluate_output(tmp_path / "x", "early", identifiers, 0.2)
         page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--clarity-axis",
                           "--output", str(tmp_path / "x" / "round")])
+
+
+def test_the_short_speaker_click_page_is_unchanged_without_the_pitch_and_noise_axes(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder of the J2 and J3 pages wrote (bade172)."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "bade172:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_j3.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_j3", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    for extra in ([], ["--click-axis", "--speaker-axis"]):
+        name = "-".join(flag.strip("-") for flag in extra) or "plain"
+        assert _built(old, tmp_path, f"old-{name}", extra, monkeypatch) == _built(
+            page_module, tmp_path, f"new-{name}", extra, monkeypatch
+        )
+
+
+def test_the_pitch_and_noise_axes_join_the_short_page_in_a_fixed_order(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "pn", ["--pitch-axis", "--noise-axis", "--speaker-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="pitch"') == text.count('data-field="noise"') >= 7
+    assert 'data-field="click"' not in text
+    first_track = text[text.index('data-field="ringing"'):]
+    order = [first_track.index(f'data-field="{field}"') for field in ("pitch", "content", "noise", "speaker")]
+    assert order == sorted(order)
+    axes = json.loads(mapping)["axes"]
+    assert list(axes) == ["ringing", "pitch", "content", "noise", "memo", "levelling", "speaker"]
+    assert axes["pitch"] == page_module.PITCH_AXIS and axes["noise"] == page_module.NOISE_AXIS
+    assert axes["pitch"]["question"] == "비정상적인 음높이 튐 · 뒤집힘 · 떨림이 있는가"
+    assert axes["noise"]["options"] == ["없음", "있음"]
+    assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "pitch", "noise")
+
+
+def test_the_pitch_and_noise_axes_need_the_short_page_and_noise_replaces_click(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    for flag in ("--pitch-axis", "--noise-axis"):
+        with pytest.raises(SystemExit, match="short page"):
+            page_module.main(["--system", f"early={first}", "--rows", "2", flag, "--output", str(tmp_path / "round")])
+    with pytest.raises(SystemExit, match="replaces --click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--noise-axis", "--click-axis",
+                          "--output", str(tmp_path / "round2")])

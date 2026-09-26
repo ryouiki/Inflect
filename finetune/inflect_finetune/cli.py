@@ -282,6 +282,17 @@ def _add_train(subparsers: Any) -> None:
         metavar="DECAY",
         help="Keep an averaged copy of the generator; 0 disables it.",
     )
+    parser.add_argument(
+        "--discriminator-update-order",
+        choices=("joint", "first"),
+        default=argparse.SUPPRESS,
+        help=(
+            "'joint' steps the discriminator together with the generator, after the "
+            "generator's adversarial terms. 'first' steps it before those terms, so "
+            "they are scored by the updated discriminator (needs "
+            "--gradient-accumulation-steps 1)."
+        ),
+    )
     parser.set_defaults(handler=_run_train)
 
 
@@ -476,6 +487,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "decoder_freeze_upsamplers",
         "posterior_init",
         "generator_ema_decay",
+        "discriminator_update_order",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}

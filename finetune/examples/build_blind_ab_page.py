@@ -159,6 +159,23 @@ CLICK_AXIS = {
         "3 · 말소리를 덮는다",
     ],
 }
+# Opt-in on the shortest page only (--short-axes --pitch-axis): abnormal pitch
+# events asked apart from the ringing, because a track can lose its ringing and
+# still jump, break or wobble in pitch. Natural intonation is not graded, and
+# any other voice problem goes in the memo rather than widening this question.
+PITCH_AXIS = {
+    "label": "음높이",
+    "question": "비정상적인 음높이 튐 · 뒤집힘 · 떨림이 있는가",
+    "options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"],
+}
+# Opt-in on the shortest page only (--short-axes --noise-axis): a yes/no in place
+# of the graded click question, for a page that only needs to know whether a
+# short noise is there. Its kind and where it is heard go in the memo.
+NOISE_AXIS = {
+    "label": "잡음",
+    "question": "클릭 · 끊김 · 자글거림 같은 짧은 잡음이 있는가",
+    "options": ["없음", "있음"],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -325,11 +342,14 @@ def render_page(
     minimal: bool = False,
     short: bool = False,
     click_axis: bool = False,
+    pitch_axis: bool = False,
+    noise_axis: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
     if minimal or short:
         return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis,
-                                    speaker=short and speaker_axis)
+                                    speaker=short and speaker_axis, pitch=short and pitch_axis,
+                                    noise=short and noise_axis)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -405,11 +425,18 @@ def _minimal_selects(row_id: str, letter: str) -> str:
     )
 
 
-def _short_track(row_id: str, letter: str, click: bool = False, speaker: bool = False) -> str:
+def _short_track(
+    row_id: str, letter: str, click: bool = False, speaker: bool = False, pitch: bool = False,
+    noise: bool = False,
+) -> str:
     selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
+    if pitch:
+        selects += _optional_select(PITCH_AXIS, "pitch", row_id, letter)
     if click:
         selects += _optional_select(CLICK_AXIS, "click", row_id, letter)
     selects += _optional_select(CONTENT_AXIS, "content", row_id, letter)
+    if noise:
+        selects += _optional_select(NOISE_AXIS, "noise", row_id, letter)
     if speaker:
         # After the existing questions, so a page without it keeps their order and bytes.
         selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
@@ -422,14 +449,14 @@ def _short_track(row_id: str, letter: str, click: bool = False, speaker: bool = 
 
 def _render_minimal_page(
     page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False,
-    speaker: bool = False,
+    speaker: bool = False, pitch: bool = False, noise: bool = False,
 ) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
         if short:
-            tracks = "".join(_short_track(row["id"], letter, click, speaker) for letter in letters)
+            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise) for letter in letters)
         else:
             tracks = "".join(
             f"""
@@ -625,6 +652,16 @@ def main(argv: list[str] | None = None) -> int:
         help="With --short-axes only: also grade clicks or crackle per track, apart from the ringing.",
     )
     parser.add_argument(
+        "--pitch-axis",
+        action="store_true",
+        help="With --short-axes only: also grade abnormal pitch jumps, breaks or wobble per track.",
+    )
+    parser.add_argument(
+        "--noise-axis",
+        action="store_true",
+        help="With --short-axes only: ask yes/no for a short noise per track, in place of --click-axis.",
+    )
+    parser.add_argument(
         "--minimal-axes",
         action="store_true",
         help=(
@@ -641,6 +678,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.click_axis and not args.short_axes:
         raise SystemExit("--click-axis belongs to the short page; use it with --short-axes.")
+    if (args.pitch_axis or args.noise_axis) and not args.short_axes:
+        raise SystemExit("--pitch-axis and --noise-axis belong to the short page; use them with --short-axes.")
+    if args.noise_axis and args.click_axis:
+        raise SystemExit("--noise-axis replaces --click-axis; use one of them.")
     if args.short_axes and (args.minimal_axes or args.clarity_axis):
         # --speaker-axis may join the short page (a speaker question for a page that compares
         # different models); every other axis flag stays refused.
@@ -771,8 +812,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.short_axes:
         axes = {
             "ringing": MINIMAL_RINGING_AXIS,
+            **({"pitch": PITCH_AXIS} if args.pitch_axis else {}),
             **({"click": CLICK_AXIS} if args.click_axis else {}),
             "content": CONTENT_AXIS,
+            **({"noise": NOISE_AXIS} if args.noise_axis else {}),
             "memo": MEMO,
             "levelling": axes["levelling"],
         }
@@ -801,6 +844,8 @@ def main(argv: list[str] | None = None) -> int:
             minimal=args.minimal_axes,
             short=args.short_axes,
             click_axis=args.click_axis,
+            pitch_axis=args.pitch_axis,
+            noise_axis=args.noise_axis,
         ),
         encoding="utf-8",
     )

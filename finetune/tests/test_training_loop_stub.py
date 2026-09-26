@@ -85,8 +85,9 @@ METRIC_KEYS = frozenset(
     }
 )
 
-#: The ten settings the remedy added. A checkpoint written before they existed
-#: carries a run identity whose `options` map lacks exactly these.
+#: The ten settings the remedy added, and the discriminator update order added
+#: after them. A checkpoint written before they existed carries a run identity
+#: whose `options` map lacks these.
 NEW_OPTION_FIELDS = (
     "adversarial_gating",
     "warmup_adversarial_gating",
@@ -98,6 +99,7 @@ NEW_OPTION_FIELDS = (
     "decoder_freeze_upsamplers",
     "posterior_init",
     "generator_ema_decay",
+    "discriminator_update_order",
 )
 
 
@@ -950,3 +952,178 @@ def test_validation_does_not_perturb_the_training_stream(
 def metric_rows_from(corpus: Corpus, output_dir: Path, **overrides: object) -> list[dict]:
     train_adaptation(make_options(corpus, output_dir, **overrides))
     return metric_rows(output_dir)
+
+
+def instrumented_events(
+    corpus: Corpus, output_dir: Path, monkeypatch: pytest.MonkeyPatch, **overrides: object
+) -> list[tuple]:
+    """Run the loop and record, in order, what each update and each discriminator call saw.
+
+    ("d_call", weights) for every call of the discriminator, with a copy of all
+    its parameters at that moment; ("unscale" | "clip" | "step", "d" | "g") for
+    every scaler.unscale_, gradient clip and scaler.step; ("update",) for every
+    scaler.update. The generator's optimizer is the one whose parameter groups
+    are named. The stub runs without AMP, where unscale_ does nothing, so its
+    calls are recorded rather than trusted to fail.
+    """
+
+    events: list[tuple] = []
+    real_build = training_module.build_training_models
+    real_scaler = training_module._grad_scaler
+    real_clip = torch.nn.utils.clip_grad_norm_
+    discriminator_ids: set[int] = set()
+
+    def which(optimizer) -> str:
+        return "g" if "name" in optimizer.param_groups[0] else "d"
+
+    def build(*args: object, **kwargs: object):
+        bundle = real_build(*args, **kwargs)
+        discriminator_ids.update(id(p) for p in bundle.discriminator.parameters())
+
+        def record(module: torch.nn.Module, _inputs: object) -> None:
+            with torch.no_grad():
+                weights = torch.cat([p.detach().flatten().clone() for p in module.parameters()])
+            events.append(("d_call", weights))
+
+        bundle.discriminator.register_forward_pre_hook(record)
+        return bundle
+
+    def scaler_factory(enabled: bool):
+        scaler = real_scaler(enabled)
+        step, update, unscale = scaler.step, scaler.update, scaler.unscale_
+
+        def counted_unscale(optimizer):
+            events.append(("unscale", which(optimizer)))
+            return unscale(optimizer)
+
+        def counted_step(optimizer, *args, **kwargs):
+            events.append(("step", which(optimizer)))
+            return step(optimizer, *args, **kwargs)
+
+        def counted_update(*args, **kwargs):
+            events.append(("update",))
+            return update(*args, **kwargs)
+
+        scaler.unscale_ = counted_unscale
+        scaler.step = counted_step
+        scaler.update = counted_update
+        return scaler
+
+    def counted_clip(parameters, *args, **kwargs):
+        parameters = list(parameters)
+        events.append(("clip", "d" if id(parameters[0]) in discriminator_ids else "g"))
+        return real_clip(parameters, *args, **kwargs)
+
+    monkeypatch.setattr(training_module, "build_training_models", build)
+    monkeypatch.setattr(training_module, "_grad_scaler", scaler_factory)
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", counted_clip)
+    settings = {"max_steps": 3, **overrides}
+    train_adaptation(make_options(corpus, output_dir, **settings))
+    return events
+
+
+def shape(step: list[tuple]) -> list[tuple]:
+    """A step's events without the weights the discriminator calls carry."""
+
+    return [event[:1] if event[0] in ("d_call", "update") else event[:2] for event in step]
+
+
+def split_steps(events: list[tuple]) -> list[list[tuple]]:
+    """One list per training step, each ending at its scaler.update."""
+
+    steps, current = [], []
+    for event in events:
+        current.append(event)
+        if event[0] == "update":
+            steps.append(current)
+            current = []
+    assert not current, "events after the last update"
+    return steps
+
+
+def test_the_joint_order_scores_both_discriminator_calls_with_the_same_weights(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The order every earlier run used: the generator's terms see the pre-step discriminator."""
+
+    steps = split_steps(instrumented_events(corpus, tmp_path / "run", monkeypatch))
+
+    assert len(steps) == 3
+    for step in steps:
+        assert shape(step) == [
+            ("d_call",), ("d_call",),
+            ("unscale", "g"), ("unscale", "d"), ("clip", "g"), ("clip", "d"),
+            ("step", "d"), ("step", "g"), ("update",),
+        ]
+        before, after = (event[1] for event in step if event[0] == "d_call")
+        assert torch.equal(before, after)
+
+
+def test_the_first_order_scores_the_generator_with_the_discriminator_it_just_stepped(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VITS order: one discriminator step, then the generator's terms, one update in all.
+
+    Counting the calls matters as much as their order: a loop that stepped the
+    discriminator here and again in the step block would still show new
+    weights on the second call.
+    """
+
+    steps = split_steps(
+        instrumented_events(
+            corpus, tmp_path / "run", monkeypatch, discriminator_update_order="first"
+        )
+    )
+
+    assert len(steps) == 3
+    for index, step in enumerate(steps):
+        assert shape(step) == [
+            ("d_call",), ("unscale", "d"), ("clip", "d"), ("step", "d"),
+            ("d_call",), ("unscale", "g"), ("clip", "g"), ("step", "g"), ("update",),
+        ]
+        before, after = (event[1] for event in step if event[0] == "d_call")
+        assert not torch.equal(before, after)
+        if index + 1 < len(steps):
+            # Nothing touches the discriminator between the generator's terms
+            # and the next step's discriminator loss.
+            assert torch.equal(after, steps[index + 1][0][1])
+
+
+def test_the_first_order_refuses_gradient_accumulation(corpus: Corpus, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="gradient_accumulation_steps=1"):
+        train_adaptation(
+            make_options(
+                corpus,
+                tmp_path / "run",
+                discriminator_update_order="first",
+                gradient_accumulation_steps=2,
+            )
+        )
+    assert not (tmp_path / "run").exists()
+
+
+def test_an_unknown_discriminator_update_order_is_refused(corpus: Corpus, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="discriminator_update_order must be one of"):
+        train_adaptation(
+            make_options(corpus, tmp_path / "run", discriminator_update_order="after")
+        )
+
+
+def test_the_update_order_is_inert_when_the_discriminator_does_not_train(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reconstruction-only polish has no discriminator pass, so "first" has nothing to move."""
+
+    recon = {"decoder_polish_mode": "recon", "posterior_warmup_steps": 0, "decoder_unfreeze_step": 0}
+    first = split_steps(
+        instrumented_events(
+            corpus, tmp_path / "first", monkeypatch, discriminator_update_order="first", **recon
+        )
+    )
+    assert len(first) == 3
+    for step in first:
+        assert shape(step) == [("unscale", "g"), ("clip", "g"), ("step", "g"), ("update",)]
+    train_adaptation(make_options(corpus, tmp_path / "joint", max_steps=3, **recon))
+    assert (tmp_path / "first" / "metrics.jsonl").read_bytes() == (
+        tmp_path / "joint" / "metrics.jsonl"
+    ).read_bytes()

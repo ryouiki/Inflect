@@ -61,6 +61,12 @@ DECODER_POLISH_MODES = ("adversarial", "recon", "posterior_decoder", "posterior_
 #: feature-matching term, and no discriminator update.
 RECONSTRUCTION_ONLY_MODES = ("recon", "posterior_decoder_recon")
 POSTERIOR_INITS = ("fresh", "inherit")
+#: When the discriminator steps. "joint": after the generator's backward pass,
+#: with the generator's adversarial terms scored by the discriminator as it was
+#: before this step (the order every earlier run used). "first": before the
+#: generator's adversarial terms are computed, so they are scored by the
+#: discriminator this step just updated (the order of the VITS reference loop).
+DISCRIMINATOR_UPDATE_ORDERS = ("joint", "first")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
 # model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
@@ -133,6 +139,7 @@ class TrainingOptions:
     decoder_freeze_upsamplers: bool = False
     posterior_init: str = "fresh"
     generator_ema_decay: float = 0.0
+    discriminator_update_order: str = "joint"
 
     @classmethod
     def from_preset(
@@ -261,6 +268,17 @@ def _validate_options(options: TrainingOptions) -> None:
         )
     if options.posterior_init not in POSTERIOR_INITS:
         raise ValueError(f"posterior_init must be one of {list(POSTERIOR_INITS)}.")
+    if options.discriminator_update_order not in DISCRIMINATOR_UPDATE_ORDERS:
+        raise ValueError(
+            f"discriminator_update_order must be one of {list(DISCRIMINATOR_UPDATE_ORDERS)}."
+        )
+    if options.discriminator_update_order == "first" and options.gradient_accumulation_steps != 1:
+        # Stepping the discriminator before the generator's terms means stepping
+        # it on every micro-batch, which is no longer accumulation.
+        raise ValueError(
+            "discriminator_update_order='first' steps the discriminator on every batch; "
+            "use gradient_accumulation_steps=1."
+        )
     if not 0.0 <= float(options.generator_ema_decay) < 1.0:
         raise ValueError("generator_ema_decay must be at least 0 and below 1.")
     if options.decoder_unfreeze_step is None:
@@ -1648,8 +1666,19 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     )
                     loss_d = _discriminator_loss(real_scores, generated_scores)
 
+            discriminator_first = options.discriminator_update_order == "first"
             if loss_d is not None:
                 scaler.scale(loss_d / options.gradient_accumulation_steps).backward()
+                if discriminator_first:
+                    # Validation holds accumulation at 1 here, so this is the
+                    # step's only discriminator update. The one scaler.update()
+                    # below still covers both optimizers.
+                    scaler.unscale_(optimizer_d)
+                    torch.nn.utils.clip_grad_norm_(
+                        bundle.discriminator.parameters(), options.max_grad_norm
+                    )
+                    scaler.step(optimizer_d)
+                    optimizer_d.zero_grad(set_to_none=True)
 
             _set_requires_grad(bundle.discriminator, False)
             with _autocast(device, amp_enabled):
@@ -1698,7 +1727,10 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             if micro_step % options.gradient_accumulation_steps:
                 continue
             scaler.unscale_(optimizer_g)
-            if train_discriminator:
+            # Under "first" the discriminator already stepped before the
+            # generator's terms; only the joint order steps it here.
+            step_discriminator_here = train_discriminator and not discriminator_first
+            if step_discriminator_here:
                 scaler.unscale_(optimizer_d)
             torch.nn.utils.clip_grad_norm_(
                 [
@@ -1709,13 +1741,14 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                 ],
                 options.max_grad_norm,
             )
-            if train_discriminator:
+            if step_discriminator_here:
                 torch.nn.utils.clip_grad_norm_(
                     bundle.discriminator.parameters(), options.max_grad_norm
                 )
-                # Stepping an optimizer the scaler recorded no inf check for is
-                # a hard error, so this has to follow the same condition as the
-                # backward pass above rather than being merely wasteful.
+                # Only when the discriminator had a backward pass this step and
+                # was not already stepped before the generator's terms: stepping
+                # an optimizer the scaler recorded no inf check for, or stepping
+                # it twice before update(), is a hard error.
                 scaler.step(optimizer_d)
             decoder_lr_scale = _decoder_lr_scale(options, state.step, state.stage)
             with _scaled_decoder_lr(optimizer_g, decoder_lr_scale):

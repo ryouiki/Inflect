@@ -186,6 +186,15 @@ If memory is exhausted, reduce the batch size and increase accumulation. Do not
 compare two runs as equivalent if precision, segment length, effective batch,
 or optimization settings differ.
 
+`--discriminator-update-order` is experimental. The default, `joint`, steps the
+discriminator together with the generator: the generator's adversarial terms are
+scored by the discriminator as it was before that step. `first` steps the
+discriminator before those terms are computed, as the VITS reference loop does.
+It needs `--gradient-accumulation-steps 1`. Every packaged preset accumulates,
+so pass that flag explicitly, and compare `first` only against a `joint` run that
+also uses accumulation 1; otherwise the effective batch differs too. Neither
+order is recommended over the other yet.
+
 ## Outputs
 
 ```text

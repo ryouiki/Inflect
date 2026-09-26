@@ -291,6 +291,7 @@ _NEW_TRAIN_FLAGS = (
     ("--no-decoder-freeze-upsamplers", None, "decoder_freeze_upsamplers", False),
     ("--posterior-init", "inherit", "posterior_init", "inherit"),
     ("--generator-ema-decay", "0.999", "generator_ema_decay", 0.999),
+    ("--discriminator-update-order", "first", "discriminator_update_order", "first"),
 )
 
 _NEW_TRAIN_FIELDS = frozenset(field for _, _, field, _ in _NEW_TRAIN_FLAGS)
@@ -345,6 +346,7 @@ def test_omitting_the_new_train_flags_leaves_every_field_at_its_dataclass_defaul
     assert options.decoder_freeze_upsamplers is False
     assert options.posterior_init == "fresh"
     assert options.generator_ema_decay == 0.0
+    assert options.discriminator_update_order == "joint"
 
 
 @pytest.mark.parametrize("coerce", [_non_negative_int, _non_negative_float, _unit_interval])
@@ -369,7 +371,11 @@ def test_the_unit_interval_excludes_one_because_a_decay_of_one_never_updates() -
 
 @pytest.mark.parametrize(
     ("flag", "value"),
-    [("--decoder-polish-mode", "reconstruction"), ("--posterior-init", "warm")],
+    [
+        ("--decoder-polish-mode", "reconstruction"),
+        ("--posterior-init", "warm"),
+        ("--discriminator-update-order", "after"),
+    ],
 )
 def test_an_unknown_enumerated_value_is_rejected_at_the_parser(flag: str, value: str) -> None:
     with pytest.raises(SystemExit):
