@@ -193,7 +193,8 @@ discriminator before those terms are computed, as the VITS reference loop does.
 It needs `--gradient-accumulation-steps 1`. Every packaged preset accumulates,
 so pass that flag explicitly, and compare `first` only against a `joint` run that
 also uses accumulation 1; otherwise the effective batch differs too. Neither
-order is recommended over the other yet.
+order is recommended over the other yet: one listening comparison (one run
+each, one page of three sentences) gave the same answers for both.
 
 ## Outputs
 

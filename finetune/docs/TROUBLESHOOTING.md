@@ -149,8 +149,9 @@ tracker reported the comb as the voice; one failing checkpoint scored 134 of
 `validation/step-*.json`, so the arrival can be dated to within a validation
 interval instead of discovered at the end.
 
-The cause found by investigation was drift in the latents, not in the decoder
-weights. The released checkpoint carries no posterior encoder, so a fresh one
+The first investigation blamed drift in the latents rather than the decoder
+weights; later runs ruled the drift's size out as the controlling variable (see
+the end of this section), and the cause is open. The released checkpoint carries no posterior encoder, so a fresh one
 starts every run, and while the decoder is frozen the adversarial gradients
 still reach the posterior encoder through it with nothing anchoring where they
 go. They do not reach the flow, which the KL term updates instead. Feeding the drifted latents to the released decoder
@@ -667,7 +668,7 @@ and do not move. What does not follow is reading a gain of zero as evidence that
 the variation is small, and a verdict that treats a gain of one grade or less as
 its result is weakened by this rather than supported.
 
-Four things were tried and measured under that caveat, and none reduced the
+Five things were tried and measured under that caveat, and none reduced the
 comb on those screens; none of them was listened to. Gating the generator's
 adversarial term while the decoder is frozen leaves the artifact unchanged and
 raises the latent drift, because that term had been pulling the latents back.
@@ -685,6 +686,14 @@ mean as the controlling variable and rules out nothing else about the latents.
 Both the training path and the inference path ring, which shows a mismatch
 between them is not the whole story rather than showing there is none. Treat
 the screens as the reliable part and the explanations as provisional.
+
+Later rounds (2026-09-26 to 09-27, listened, one run each, three sentences per
+page) found one recipe that lowered the ringing grade: every module trained from
+step 0 with the discriminator inherited from the stage-1 checkpoint, and the
+linguistic group at half rate. It was not adopted, because words went missing
+or mushy on one sentence and the listener marked abnormal pitch on every
+sentence. Stepping the discriminator first changed no listening answer. There is
+still no recommended fix.
 
 ## Output is intelligible but pronunciation is wrong
 

@@ -1,6 +1,6 @@
 # 인계 — 새 환경에서 셋업하고 이어가기
 
-**대상 브랜치**: `feat/training-core-remedy-b` (main 대비 79커밋, 마지막 커밋 `91ff9f5` · 2026-09-22)
+**대상 브랜치**: `main` (2026-09-27에 `feat/training-core-remedy-b`를 머지하고 그 브랜치를 지웠다)
 **갱신일**: 2026-09-27
 
 이 문서는 **"어디서 무엇을 깔고, 무엇을 먼저 읽고, 무엇이 저장소 밖에 있는가"** 만 다룬다.
@@ -13,40 +13,39 @@
 
 | 단계 | 상태 | 로드맵 |
 |---|---|---|
-| M0 / G0 환경 확정 | ✅ 통과 (2026-09-04, RTX 5090) | §3 M0 |
-| M1 JA 프론트엔드 | 코드 완료. G1(c)는 자동 스크린으로 대체(사용자 결정) | §3 M1, §6.4 |
-| M2 데이터 준비 | ✅ 통과 (2026-09-04) — `ja-spkA-v2` · `ja-jsut-v1` · `ko-spkA-v1b` | §3 M2 |
-| M3 stage-1 (JSUT) | 학습 완료, 그 export를 `--base`로 stage-2 진행(G3 통과 줄은 로드맵에 따로 없음) | §3 M3 |
-| M4 / G4 청취 | ❌ **미통과** — 전 렌더에 링잉(디코더 업샘플 격자 톤, R16) | §3 M4, §7 R16 |
-| 링잉 대응 (학습 코어 개선안 b, C13–C23) | 코드 완료 · 라운드 1차 ~ Q까지 진행. **채택된 처방 없음** | §3.1 – §3.21 |
-| M5 KO 프론트엔드 | 코드 완료, G5 통과. 실제 전사 표본 검수 남음 | §3 M5 |
-| M6 KO 적응 + 배포 패키징 | 미착수 (C12 미완) | §3 M6 |
+| M0 / G0 환경 확정 | ✅ 통과 (2026-09-04, RTX 5090) | [02-milestones.md](roadmap/02-milestones.md) M0 |
+| M1 JA 프론트엔드 | 코드 완료. G1(c)는 자동 스크린으로 대체(사용자 결정) | M1, 이 문서 부록 §6.4 |
+| M2 데이터 준비 | ✅ 통과 (2026-09-04) — `ja-spkA-v2` · `ja-jsut-v1` · `ko-spkA-v1b`. 다음 학습부터 `ja-spkA-v3`(전사 30행 교정, §3.38–§3.39) | M2 |
+| M3 stage-1 (JSUT) | 학습 완료, 그 export와 체크포인트에서 stage-2 진행(G3 판정 줄은 로드맵에 따로 없음) | M3 |
+| M4 / G4 청취 | ❌ **미통과** — 링잉(R16)이 남아 있다 | M4, [10-risks.md](roadmap/10-risks.md) R16 |
+| 링잉 대응 | 라운드 1차 ~ J4 · B1 · B2까지 진행. **채택된 처방 없음.** J3가 링잉 감소 후보(연구 기준)이고, 발음 · 음높이 품질 회복은 미완 | [README 현재 상태](roadmap/README.md), §3.1–§3.39 |
+| M5 KO 프론트엔드 | 코드 완료, G5 통과. 실제 전사 표본 검수 남음 | M5 |
+| M6 KO 적응 + 배포 패키징 | 미착수 (C12 미완) | M6 |
 
-**마지막 라운드**: 청취 Q(2026-09-21, 외부 리뷰 각주 2026-09-22) — 같은 J1 잠재를 J1·I1 디코더로 낸 쌍이
-네 축·직접 순위 모두 동률 → **이번 디코더 교체 후보를 닫았다.** 종료 범위는 "선정한 두 10k 체크포인트의
-교체 비교"로 좁혀져 있다(각주 R2).
+**마지막 라운드**: J4(2026-09-27) — J3에서 판별기 갱신 순서만 바꾼 런. 청취 답이 J3와 모든 칸에서 같았고, 불성립 · 미채택이다(§3.36).
+보조 비교 B2는 미결이다. 기준 트랙 조건 때문이고, SBV2 TTS의 링잉 · 클릭 · 낱말 문제는 관측되지 않았다(§3.37).
 
-**다음 하나**: **권고 없음 — 선택은 사용자에게 있다**(§3.21 각주 R3). 구간 진단은 "L·M이 답하지 못한
-어떤 질문에 답하고, 결과에 따라 어떤 개입을 고르거나 버리는가"를 적은 **별도 계획**이 있을 때만 연다.
+**다음 하나**: **승인된 다음 실험은 없다.** 제안은 있다(B2의 비용 순 ①–③, §3.37). 다음 후보는 J2–J4 결과 · A1 · 그 제안을 근거로 별도 계획을 세우고, 승인 뒤에만 실행한다.
 새 세션은 사용자 결정 없이 새 학습·청취 라운드를 시작하지 않는다.
 
-**남은 사용자 결정**: §8 Q5(JA 악센트구 경계 표기), Q6(KO ㅐ/ㅔ 병합) — 둘 다 청취 후.
+**남은 사용자 결정**: 다음 후보 선택(별도 계획 승인), A1의 lexicon 후보 1건 반영 여부(§3.39), §8 Q5(JA 악센트구 경계 표기), Q6(KO ㅐ/ㅔ 병합) — Q5 · Q6은 청취 후.
 
 ---
 
 ## 2. 저장소 안과 밖
 
-이 브랜치의 기록은 **두 곳**에 나뉘어 있다. 새 환경에서 가장 먼저 헷갈리는 지점이다.
+이 프로젝트의 기록은 **두 곳**에 나뉘어 있다. 새 환경에서 가장 먼저 헷갈리는 지점이다.
 
 | 위치 | 내용 | 어디에 있나 |
 |---|---|---|
-| `Inflect/finetune/` (git) | 툴킷 코드·테스트·문서·예제 스크립트 | GitHub `ryouiki/Inflect` 브랜치 `feat/training-core-remedy-b` |
-| `<work-dir>/` (git 아님) | 준비 데이터셋·런·체크포인트·청취 페이지·판정 파일·런 기록(`runs/*.md`)·진단(`evals/diag/`)·실행 스크립트(`scripts/`)·`env/G0.md` | **CUDA 머신(WSL2 Ubuntu-24.04) 로컬 디스크에만** 있다 |
+| `Inflect/finetune/` (git) | 툴킷 코드·테스트·문서·예제 스크립트 | GitHub `ryouiki/Inflect` 브랜치 `main` |
+| `<work-dir>/` (공개 저장소 아님) | 준비 데이터셋·런·체크포인트·청취 페이지·판정 파일·런 기록(`runs/*.md`)·진단(`evals/diag/`)·실행 스크립트(`scripts/`)·`env/G0.md` | **CUDA 머신(WSL2 Ubuntu-24.04) 로컬 디스크에만** 있다 |
 | NAS 드라이브 | 원본 음성 코퍼스(화자 A JA/KR, JSUT) | 윈도우 NAS 드라이브 → WSL `<nas-mount>` |
 
 - 로드맵이 `runs/…`, `listening/…`, `scripts/render_decoder_pair.py` 등을 인용하면 **전부 `<work-dir>/` 기준 경로**다.
   이 저장소의 `Inflect/scripts/`와는 무관하다.
-- `<work-dir>/`와 원본 음성은 **외부 공개 금지**(§8 Q2: 배포 없음, 사설 연구). 커밋하지 않는다.
+- `<work-dir>/`와 원본 음성은 **외부 공개 금지**(§8 Q2: 배포 없음, 사설 연구). 공개 저장소에 커밋하지 않는다.
+- 공개 문서에는 비공개 자료를 가명으로만 쓴다(화자 A · B, `ja-spkA-*`, 하위 자료 S1… · K1…). 실제 대응은 공개 저장소 밖에 둔다.
 - 따라서 **GPU 작업(학습·렌더·청취 페이지 생성)은 CUDA 머신에서만** 이어갈 수 있다.
   다른 환경에서 할 수 있는 것은 코드·테스트·문서 작업이다(§4 표).
 
@@ -58,11 +57,11 @@
 
 ### 3.1 CUDA 머신 (WSL2 Ubuntu-24.04, RTX 5090 / sm_120) — 학습·렌더 가능
 
-로드맵 §6.1이 실행판이다. 요점만:
+이 문서 부록 §6.1이 실행판이다. 요점만:
 
 ```bash
 cd <repo>   # 이 머신의 기존 클론 위치
-git fetch origin && git checkout feat/training-core-remedy-b && git pull
+git fetch origin && git checkout main && git pull
 cd finetune
 python3 -m venv .venv && source .venv/bin/activate && unset LD_LIBRARY_PATH
 python -m pip install -U pip
@@ -74,7 +73,7 @@ INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -p no:warnings
 
 - **torch를 cu128 인덱스에서 먼저** 깐다. 순서가 바뀌면 sm_120 커널 없는 PyPI 빌드가 들어온다.
 - `~/.bashrc`의 `LD_LIBRARY_PATH=/usr/local/cuda/lib64`가 wheel 동봉 cuDNN을 가리므로 torch 셸에서는 `unset`.
-- 데이터셋 마운트(§6.2): `wsl.exe -d Ubuntu-24.04 -u root -- bash -lc "mkdir -p <nas-mount> && mount -t drvfs <nas-drive>: <nas-mount>"`.
+- 데이터셋 마운트(부록 §6.2): `wsl.exe -d Ubuntu-24.04 -u root -- bash -lc "mkdir -p <nas-mount> && mount -t drvfs <nas-drive>: <nas-mount>"`.
   9p라 느리므로(≈53 files/s) 학습·prepare는 `<work-dir>/data/` 로컬 복제본에서만 한다.
 - GPU 작업은 한 번에 하나만 돌린다.
 
@@ -82,7 +81,6 @@ INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -p no:warnings
 
 ```bash
 git clone https://github.com/ryouiki/Inflect.git && cd Inflect
-git checkout feat/training-core-remedy-b
 cd finetune
 python3 -m venv .venv && source .venv/bin/activate
 python -m pip install -U pip
@@ -99,7 +97,6 @@ GPU 작업은 WSL2의 CUDA 머신 셸(§3.1)에서 한다. 네이티브는 편�
 
 ```powershell
 git clone https://github.com/ryouiki/Inflect.git; cd Inflect
-git checkout feat/training-core-remedy-b
 cd finetune
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -137,11 +134,11 @@ pytest
 ## 5. 이어가기 전에 읽을 것 (순서)
 
 1. 이 문서 §1–§2.
-2. [로드맵 목차](roadmap/README.md) 머리말 → §3.21(마지막 라운드와 각주) → §7 R16 → §8.
-3. §6.4 **"인계받는 사람이 먼저 알아야 할 것"** — `export --package-template micro` 필수, `--min/--max-duration-seconds`는
-   필터가 아니라 단언, `max_steps`가 run identity에 들어가 연장은 export → `--base` 체이닝뿐, 등.
-4. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — 링잉 계측의 한계(짧은 창의 `None`, 비율 대 절대 레벨)가 정리돼 있다.
-5. [TRAINING.md](TRAINING.md) — 개선안 b의 옵션(전부 기본 off)과 의미.
+2. [로드맵 목차](roadmap/README.md)의 "현재 상태" → [08-joint-adaptation.md](roadmap/08-joint-adaptation.md)(§3.33–§3.39) → [10-risks.md](roadmap/10-risks.md) R16 → §8.
+3. 이 문서 부록 §6.4 **"인계받는 사람이 먼저 알아야 할 것"** — `export --package-template micro` 필수, `--min/--max-duration-seconds`는
+   필터가 아니라 단언, `max_steps`가 run identity에 들어가 `--resume` 연장은 거부된다(전체 상태를 이어 연장하려면 `--branch-from`, 새 레시피는 `--init-from`, TRAINING.md), 등.
+4. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — 링잉 계측의 한계(짧은 창의 수치, 비율 대 절대 레벨)가 정리돼 있다. 측정할 수 없으면 아무것도 보고하지 않는 규칙은 TRAINING.md에 있다.
+5. [TRAINING.md](TRAINING.md) — 개선안 b의 옵션(전부 기본 off), `--init-from`, `--discriminator-update-order`의 의미.
 
 **작업 규칙** (로드맵이 지켜온 것):
 - 게이트와 판정 규칙은 **데이터를 보기 전에** 고정하고 커밋한다.
@@ -155,17 +152,17 @@ pytest
 
 다음 세션(다른 기기·다른 콘솔)이 이어받을 수 있도록:
 
-1. 로드맵의 해당 절과 **변경 이력** 표에 한 줄을 남긴다.
+1. 로드맵의 해당 파일(`roadmap/`)과 [CHANGELOG.md](roadmap/CHANGELOG.md)에 한 줄을 남긴다. 목차 README의 "현재 상태"도 바뀌었으면 고친다.
 2. 이 문서 §1 표와 "다음 하나"가 바뀌었으면 고친다(갱신일 포함).
 3. `<work-dir>/`에만 있는 새 기록은 로드맵에 **경로를 인용**해 둔다 — 다른 환경에서는 그 파일을 볼 수 없으므로,
    결론 문장은 로드맵 본문에 있어야 한다.
-4. 커밋·푸시한다. 푸시하지 않은 작업은 다른 기기에서 보이지 않는다.
+4. 커밋·푸시한다(`main`, `ryouiki/Inflect`에만). 푸시하지 않은 작업은 다른 기기에서 보이지 않는다. 공개 문서에는 가명만 쓴다.
 
 ---
 
 ## 부록 — CUDA 머신 인계 원문 (옛 로드맵 §6, 2026-09-27에 이 문서로 옮김)
 
-아래는 옛 로드맵 §6을 그대로 옮긴 것이다(익명화만 적용). 위 본문의 "로드맵 §6.x"는 이 부록의 같은 번호를 가리킨다.
+아래는 옛 로드맵 §6을 그대로 옮긴 것이다(익명화만 적용). 로드맵 파일과 옛 기록의 "§6.x"는 이 부록의 같은 번호를 가리킨다.
 
 ### 6.1 환경 구축 — 2026-09-04 실행판
 
@@ -245,6 +242,8 @@ print(G2p()("국물 좀 드세요."))   # 궁물 좀 드세요.
 
 ### 6.4 인계 상태와 첫 작업 순서
 
+*(2026-09-27 보완: 아래는 2026-09-04 당시의 기록이다. 지금은 본문 §3.1의 `main` 절차를 따른다.)*
+
 브랜치 `feat/multilingual-frontend-registry`. 프론트엔드 스택과 마이그레이션 경로는
 끝났고, 남은 GPU-불필요 작업(C7·C8–C10)은 착수하지 않았다 — 학습 대기 시간에 넣을 수
 있도록 남겨둔 것이다.
@@ -303,7 +302,7 @@ G4 라운드에서 발음 결함이 나오면 여기를 먼저 의심한다.
   `--checkpoint`로 바꿔가며 `validation.jsonl`을 넘기면 전 후보가 같은 실물 수치를 낸다.
 - **`max_steps`는 run identity에 들어간다**(`_public_options`가 제외하는 것은
   `base_model/prepared_dir/output_dir/preset/resume`뿐). 스텝 수를 바꾼 `--resume`은 거부되므로
-  학습 연장은 export → `--base` 체이닝으로 새 run을 만드는 것뿐이다.
+  학습 연장은 export → `--base` 체이닝으로 새 run을 만드는 것뿐이다. *(2026-09-27 보완: 이제 `--branch-from`으로 전체 상태를 이어받아 연장할 수 있다. 셔플 순서만 분기점에서 다시 시작된다.)*
 - `metrics.jsonl`에는 **타임스탬프도 검증 loss도 없다.** 벽시계는 로그로 재고, 체크포인트 선택은
   `evaluate` + 청취로 한다.
 - **알려진 G2P 한계는 `docs/LANGUAGES.md`에 언어별로 정리돼 있다** — 예를 들어

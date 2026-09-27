@@ -27,9 +27,13 @@
 | C18 | 경계 resume lr(D2) + 검증 RNG 격리(D5) | `training.train_adaptation()` resume 분기 · `training._validate()` | M7 | ✅ 완료(2026-09-05). 경계 재개가 무중단 런과 1e-18 이내로 일치. 초기 커밋부터 있던 결함 |
 | C19 | evaluate 출처 명시(D3) | `evaluation.evaluate_checkpoint()` | M7 | ✅ 완료(2026-09-05). `source.mode`·합성 수·무시된 audio 수·혼합 검사. `ok`의 의미는 의도적으로 불변 |
 | C20 | 배포 splitter 숫자 가드(D4) | `exporting._SENTENCE_BOUNDARY` · 신규 `tests/test_export_runtime_split.py` | M6 | ✅ 완료(2026-09-05). **기존 export 15개는 각자 사본을 갖고 있어 재-export 필요.** 공개 HF 패키지는 영향 없음 |
-| C21 | 콤 절대 레벨 관측치 추가 | `grid_screens.grid_comb_metrics()` (`grid_tone_level_db`·`off_grid_level_db`) | M7 | ✅ 완료(2026-09-05). **격자 톤 초과는 비율이라 바닥이 다른 두 렌더의 순위를 뒤집는다** — mel A/B에서 40행 중 37행을 거꾸로 매겼다. 검출은 비율, 렌더 비교는 레벨 |
+| C21 | 콤 절대 레벨 관측치 추가 | `grid_screens.grid_comb_metrics()` (`grid_tone_level_db`·`off_grid_level_db`) | M7 | ✅ 완료(2026-09-05). **격자 톤 초과는 비율이라 바닥이 다른 두 렌더의 순위를 뒤집는다** — mel A/B에서 40행 중 37행을 거꾸로 매겼다. 검출은 비율, 렌더 비교는 레벨 *(2026-09-27 보완: 이 지표는 게인에 불변인 신호 대비 값이다, §3.2.)* |
 | C22 | 청취 페이지 공통 목표 RMS | `examples/build_blind_ab_page.py` (`page_target_rms_dbfs`·`crest_factor_db`·`LEVEL_FLOOR_DBFS`·`--catch-system`) | M7 | ✅ 완료(2026-09-06). 클립별 레벨링이라 피크 가드가 걸린 클립만 조용해졌다 — 지난 페이지 33트랙 중 9개가 목표 미달, 한 행 2.33 dB 차. 이제 모든 트랙이 도달 가능한 최대값 하나를 페이지 전체에 적용하고(지난 페이지 재생성 시 −27.28 dBFS, 편차 0.0001 dB), 바닥 −30 dBFS를 넘기면 중단한다. **`limited_by`는 시스템 이름을 담으므로 페이지에 박히는 `axes`가 아니라 봉인된 mapping 최상위에 기록한다** |
 | C23 | 문장별 CSV에 절대 PSD 파생 열 | `<work-dir>/scripts/verdict_mel_ab.py --csv` | M7 | ✅ 완료(2026-09-06). 스크린 세 값이 모두 순수 게인에 불변이라 절대량을 말하지 못한다. `레벨 + rms_dbfs`(원래 출력)와 `레벨 + 고정 기준`(공통 재생 레벨)을 나눠 기록하고 길이·무음 비율을 함께 남긴다. **라이브러리 키는 추가하지 않았다 — 항등식으로 파생된다** |
+| C24 | 끝난 run을 전체 상태로 이어 가는 분기(`--branch-from`) | `training`(branch identity) | M7 | ✅ 완료(2026-09-23, `866aacb` · `0acdb06`). 셔플 순서만 분기점에서 다시 시작된다. *(2026-09-27에 표에 추가)* |
+| C25 | 다른 run의 가중치로 새 레시피 시작(`--init-from`), posterior · decoder만 학습하는 polish 모드 | `training`(init block · `decoder_polish_mode`) | M7 | ✅ 완료(`79b8d29` · `59f91bf`). J2–J4가 `--init-from`을 썼다. *(2026-09-27에 표에 추가)* |
+| C26 | 판별기 갱신 순서 옵션(`discriminator_update_order`: joint 기본 · first) | `training` · `cli` | M7 | ✅ 완료(2026-09-27, `96d521a`). 기본값은 이전과 같은 계산이다. J4에서 시험했다(§3.36). *(2026-09-27에 표에 추가)* |
+| C27 | 청취 페이지 문항 선택지(화자 · 명료성 · 최소 · 짧은 페이지 · 클릭 · 음높이 · 잡음) | `examples/build_blind_ab_page.py` · `tally_verdict.py` | M7 | ✅ 완료(`2c52471` · `72bba9f` · `d04c3b2` · `50e27ce` · `d745029` · `bade172` · `96d521a` · `ec25767`). 선택지가 없는 페이지는 바이트 동일하게 다시 만들어진다. *(2026-09-27에 표에 추가)* |
 
 학습 코어(`training.py`)와 임베딩 마이그레이션(`checkpoint.py`)은 원래 **변경 대상이
 아니었다.** 2026-09-05 사용자가 링잉 대응(개선안 b)을 승인하면서 이 제약을 해제했고,
@@ -143,7 +147,7 @@ t ts tʲ tɕ d dʲ n ɲ h ç ɸ b bʲ p pʲ m mʲ j ɾ ɾʲ w v`.
 
 **데이터**: 미확보. HF 캐시의 `Bingsu/KSS_Dataset`은 메타데이터 스텁(12K)이고 오디오는
 없다. `fsicoli/common_voice_17_0`(2.3G 캐시)은 다화자라 stage-1 후보다.
-**한국어 단일 화자 코퍼스 확보는 M6의 선행 조건이며 사용자 결정 사항이다**(§8 Q3).
+**한국어 단일 화자 코퍼스 확보는 M6의 선행 조건이며 사용자 결정 사항이다**(§8 Q3). *(2026-09-03 보완: 결정됨 — 화자 A KR, §8 Q3. 준비본 `ko-spkA-v1b`, M2.)*
 
 ---
 

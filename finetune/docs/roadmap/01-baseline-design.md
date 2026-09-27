@@ -4,7 +4,7 @@
 
 ## 1. 검증된 기준선 (2026-08-30 실측)
 
-아래는 추정이 아니라 이 저장소에서 실행해 확인한 결과다. 재현 명령은 §6.3에 있다.
+아래는 추정이 아니라 이 저장소에서 실행해 확인한 결과다. 재현 명령은 [HANDOFF 부록 §6.3](../HANDOFF.md)에 있다.
 
 > 코드 인용은 **심볼 이름이 정본**이다. 줄 번호는 편집으로 즉시 어긋나므로 쓰지 않는다.
 
@@ -53,7 +53,7 @@
 inflect_finetune/frontends/
   __init__.py          # REGISTRY + resolve() + registry_record() + hook_path_for_record()
   ja_openjtalk.py      # pyopenjtalk-plus                                    [구현됨]
-  ko_g2pkk.py          # g2pkk + espeak(ko) IPA 단계                          [M5]
+  ko_g2pkk.py          # g2pkk + espeak(ko) IPA 단계                          [M5] (2026-08-30 보완: espeak 제외, g2pkk → 발음 한글 → 자모 직접 매핑으로 구현. V6, §5.3)
 ```
 
 **구현된 형태(2026-08-30)**: 레지스트리 항목은 새 mode가 아니라 **동봉된 custom
