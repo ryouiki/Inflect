@@ -1,6 +1,6 @@
 # 인계 — 새 환경에서 셋업하고 이어가기
 
-**대상 브랜치**: `feat/training-core-remedy-b` (main 대비 79커밋, 마지막 커밋 `91ff9f5` · 2026-09-22)
+**대상 브랜치**: `main` — 작업 브랜치 `feat/training-core-remedy-b`는 2026-09-27 PR #1로 병합됐다(마지막 작업 커밋 `91ff9f5` · 2026-09-22)
 **갱신일**: 2026-09-27
 
 이 문서는 **"어디서 무엇을 깔고, 무엇을 먼저 읽고, 무엇이 저장소 밖에 있는가"** 만 다룬다.
@@ -40,7 +40,7 @@
 
 | 위치 | 내용 | 어디에 있나 |
 |---|---|---|
-| `Inflect/finetune/` (git) | 툴킷 코드·테스트·문서·예제 스크립트 | GitHub `ryouiki/Inflect` 브랜치 `feat/training-core-remedy-b` |
+| `Inflect/finetune/` (git) | 툴킷 코드·테스트·문서·예제 스크립트 | GitHub `ryouiki/Inflect` 브랜치 `main` |
 | `inflect-work/` (git 아님) | 준비 데이터셋·런·체크포인트·청취 페이지·판정 파일·런 기록(`runs/*.md`)·진단(`evals/diag/`)·실행 스크립트(`scripts/`)·`env/G0.md` | **CUDA 머신(WSL2 Ubuntu-24.04) 로컬 디스크에만** 있다 |
 | NAS `M:` | 원본 음성 코퍼스(arona JA/KR, JSUT) | 윈도우 드라이브 `M:` → WSL `/mnt/m` |
 
@@ -62,7 +62,7 @@
 
 ```bash
 cd ~/projects/Inflect   # 이 머신의 기존 클론 위치
-git fetch origin && git checkout feat/training-core-remedy-b && git pull
+git fetch origin && git checkout main && git pull
 cd finetune
 python3 -m venv .venv && source .venv/bin/activate && unset LD_LIBRARY_PATH
 python -m pip install -U pip
@@ -82,7 +82,7 @@ INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -p no:warnings
 
 ```bash
 git clone https://github.com/ryouiki/Inflect.git && cd Inflect
-git checkout feat/training-core-remedy-b
+git checkout main
 cd finetune
 python3 -m venv .venv && source .venv/bin/activate
 python -m pip install -U pip
@@ -99,7 +99,7 @@ GPU 작업은 WSL2의 CUDA 머신 셸(§3.1)에서 한다. 네이티브는 편�
 
 ```powershell
 git clone https://github.com/ryouiki/Inflect.git; cd Inflect
-git checkout feat/training-core-remedy-b
+git checkout main
 cd finetune
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
