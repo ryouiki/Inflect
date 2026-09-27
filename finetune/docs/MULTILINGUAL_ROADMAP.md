@@ -1849,12 +1849,12 @@ t ts tʲ tɕ d dʲ n ɲ h ç ɸ b bʲ p pʲ m mʲ j ɾ ɾʲ w v`.
 
 ### 6.1 환경 구축 — 2026-09-04 실행판
 
-이 머신의 저장소는 `/home/ysoya/projects/Inflect`다(작성 당시의 `~/github/...`가 아니다).
+이 머신의 저장소는 `~/projects/Inflect`다(작성 당시의 `~/github/...`가 아니다).
 Blackwell(sm_120)에서는 **torch를 cu128 인덱스에서 먼저** 깔아야 한다. `pyproject`의 `torch>=2.2`는
 sm_120 하한을 강제하지 않으므로, 순서를 바꾸면 기본 PyPI 빌드가 들어와 커널이 없다.
 
 ```bash
-cd /home/ysoya/projects/Inflect/finetune
+cd ~/projects/Inflect/finetune
 python3 -m venv .venv && source .venv/bin/activate && unset LD_LIBRARY_PATH
 python -m pip install -U pip
 python -m pip install "torch==2.8.0" --index-url https://download.pytorch.org/whl/cu128
@@ -1880,7 +1880,7 @@ INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -p no:warnings    # 21 passed
 wsl.exe -d Ubuntu-24.04 -u root -- bash -lc "mkdir -p /mnt/m && mount -t drvfs M: /mnt/m"
 ```
 
-경로 목록은 `/home/ysoya/projects/supertonic-ja-ft/configs/paths.example.yaml`,
+경로 목록은 `~/projects/supertonic-ja-ft/configs/paths.example.yaml`,
 환경 절차는 같은 저장소 `docs/environment.md`. (작성 당시 표기한 `~/github/...`는 이 머신에 없다.)
 
 `/mnt/m`은 9p로 **≈53 files/s · ≈25 MB/s**다. 많은 작은 파일에서 병목이 되므로 학습·prepare는

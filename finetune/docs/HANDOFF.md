@@ -61,7 +61,7 @@
 로드맵 §6.1이 실행판이다. 요점만:
 
 ```bash
-cd /home/ysoya/projects/Inflect
+cd ~/projects/Inflect   # 이 머신의 기존 클론 위치
 git fetch origin && git checkout feat/training-core-remedy-b && git pull
 cd finetune
 python3 -m venv .venv && source .venv/bin/activate && unset LD_LIBRARY_PATH

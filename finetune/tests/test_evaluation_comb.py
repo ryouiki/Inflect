@@ -41,8 +41,9 @@ FRAME_GRID_HZ = SAMPLE_RATE / HOP_LENGTH  # 93.75
 NOISE_SEED = 20260905
 
 # Real audio, if this machine happens to be the one the diagnosis ran on.
-ANCHOR_AUDIO = Path("/home/ysoya/inflect-work/prepared/ko-arona-v1b/audio")
-RINGING_RENDERS = Path("/home/ysoya/inflect-work/evals/ko-arona-micro-direct-20260904-final-round/audio")
+DIAG_WORK = Path.home() / "inflect-work"
+ANCHOR_AUDIO = DIAG_WORK / "prepared/ko-arona-v1b/audio"
+RINGING_RENDERS = DIAG_WORK / "evals/ko-arona-micro-direct-20260904-final-round/audio"
 
 
 def comb(period: int = HOP_LENGTH, seconds: float = 2.0, amplitude: float = 0.5) -> np.ndarray:
@@ -434,7 +435,7 @@ def test_caller_mistakes_raise_instead_of_returning_a_passing_score():
 
 @pytest.mark.skipif(
     not (ANCHOR_AUDIO.is_dir() and RINGING_RENDERS.is_dir()),
-    reason="Needs the diagnosis working directory under /home/ysoya/inflect-work.",
+    reason="Needs the diagnosis working directory ~/inflect-work.",
 )
 def test_real_recordings_and_ringing_renders_separate_on_the_grid_screen():
     """The measurement that pinned the fault, against the audio that showed it.
