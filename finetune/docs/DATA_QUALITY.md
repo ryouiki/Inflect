@@ -70,13 +70,29 @@ Configured duration and structural thresholds are recorded. A clip passing
 automated checks does not prove that its transcript, speaker identity,
 pronunciation, or audio quality is correct.
 
-`output_clipped_files` is worth reading before a first run. Resampling rings
+`prepare` refuses a dataset whose conversion clipped any row. Resampling rings
 above the source peak, so a corpus mastered near full scale — anything limited
 at a fraction of a decibel below it — loses samples to the peak limit as a
 matter of course, and the loss is not visible in the source-side number. The
-fix is a uniform gain over the whole corpus before preparing, a few decibels
-down. Lowering only the rows that clipped would change the level relationship
-between rows, which is a property of the corpus rather than of those rows.
+verdict is taken from each row's peak after resampling and before the clip
+(`pre_clip_peak`, `output_clipped_samples` in `preparation_report.json`), never
+from the written file, whose peak of 1.0 cannot say whether anything was cut.
+
+A refused run writes no dataset. It leaves `<output>.clipping-report.json`
+beside the requested directory, with the clipped rows and a recommended gain,
+and the error names that gain. The fix is `--input-gain-db` on a new output
+directory: one gain over the whole corpus, applied before resampling, chosen so
+the pre-clip peak lands at −1 dBFS (`G_new = G + 20·log10(T/P)`, rounded down to
+0.1 dB). The default is 0, which leaves the samples untouched. Lowering only the
+rows that clipped would change the level relationship between rows, which is a
+property of the corpus rather than of those rows, so per-row gain is not offered.
+
+The gain is recorded in `dataset.json` under `audio_processing`, so a different
+gain is a different dataset hash for checkpoints and exports. Clipping the
+recordings arrived with is still counted on the untouched source
+(`source_clipped_files`) and does not disappear when the gain lowers it.
+`audit` rejects a dataset whose `output_clipped_files` is nonzero and warns when
+a dataset prepared before this count existed cannot answer.
 
 ## Manual review
 

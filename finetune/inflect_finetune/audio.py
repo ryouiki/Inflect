@@ -26,6 +26,10 @@ class AudioOptions:
     max_channels: int = 8
     peak_limit: float = 1.0
     output_subtype: str = "PCM_16"
+    # One gain for the whole corpus, applied before resampling. Zero leaves the
+    # samples untouched. Per-row gain is deliberately not offered: the level
+    # relationship between rows belongs to the corpus, not to any one row.
+    input_gain_db: float = 0.0
 
     def validate(self) -> None:
         """Validate option values before reading any source files."""
@@ -42,6 +46,8 @@ class AudioOptions:
             raise ValueError("max_channels must be at least one.")
         if not 0 < self.peak_limit <= 1:
             raise ValueError("peak_limit must be in the interval (0, 1].")
+        if not math.isfinite(self.input_gain_db):
+            raise ValueError("input_gain_db must be finite.")
 
 
 @dataclass(frozen=True)
@@ -58,6 +64,12 @@ class AudioDiagnostics:
     output_peak: float
     source_clipped_fraction: float
     output_clipped_fraction: float
+    # The largest magnitude after gain and resampling but before the clip, and
+    # how many samples the clip then cut. The written file cannot tell these
+    # apart from material that simply reached full scale on its own.
+    pre_clip_peak: float
+    output_clipped_samples: int
+    input_gain_db: float
     resampled: bool
     downmixed: bool
 
@@ -167,8 +179,12 @@ def convert_wav(
         raise AudioValidationError(f"Audio contains NaN or infinite samples: {source}")
 
     source_peak = float(np.max(np.abs(audio), initial=0.0))
+    # Measured on the recording as it arrived, so clipping already in the source
+    # stays visible however far the gain below lowers it.
     source_clipped_fraction = float(np.mean(np.abs(audio) >= 0.999))
     mono = _mono(audio)
+    if options.input_gain_db != 0.0:
+        mono = mono * (10.0 ** (options.input_gain_db / 20.0))
     converted = _resample(mono, sample_rate, options.sample_rate)
     if not np.isfinite(converted).all() or converted.size == 0:
         raise AudioValidationError(f"Audio conversion produced invalid samples for {source}.")
@@ -176,7 +192,10 @@ def convert_wav(
     # scale loses samples to the clip below as a matter of course. Measured
     # before the clip: afterwards it is indistinguishable from material that
     # simply reached full scale on its own.
-    output_clipped_fraction = float(np.mean(np.abs(converted) > options.peak_limit))
+    pre_clip_peak = float(np.max(np.abs(converted), initial=0.0))
+    over = np.abs(converted) > options.peak_limit
+    output_clipped_samples = int(np.count_nonzero(over))
+    output_clipped_fraction = float(np.mean(over))
     converted = np.clip(converted, -options.peak_limit, options.peak_limit)
 
     destination = Path(destination)
@@ -207,6 +226,9 @@ def convert_wav(
         output_peak=float(np.max(np.abs(converted), initial=0.0)),
         source_clipped_fraction=source_clipped_fraction,
         output_clipped_fraction=output_clipped_fraction,
+        pre_clip_peak=pre_clip_peak,
+        output_clipped_samples=output_clipped_samples,
+        input_gain_db=options.input_gain_db,
         resampled=sample_rate != options.sample_rate,
         downmixed=info.channels != 1,
     )

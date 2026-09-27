@@ -283,6 +283,25 @@ def audit_dataset(options: AuditOptions) -> dict[str, Any]:
         errors.append("dataset.json validation row count does not match validation.jsonl.")
     if expected_counts.get("total") != sum(split_counts.values()):
         errors.append("dataset.json total row count does not match the prepared splits.")
+    # prepare refuses a dataset its conversion clipped, so a nonzero count here
+    # means the dataset came from elsewhere or was edited. Datasets prepared
+    # before the count existed cannot answer, which is worth saying but not
+    # grounds to reject them.
+    diagnostics = dataset.get("diagnostics")
+    output_clipped = (
+        diagnostics.get("output_clipped_files") if isinstance(diagnostics, dict) else None
+    )
+    if output_clipped is None:
+        warnings.append(
+            "dataset.json does not record output_clipped_files, so clipping introduced "
+            "by conversion cannot be ruled out. Prepare again to record it."
+        )
+    elif output_clipped:
+        errors.append(
+            f"Conversion clipped {output_clipped} row(s) "
+            "(dataset.json diagnostics.output_clipped_files). Prepare again into a "
+            "new directory with --input-gain-db lowered as the prepare error advises."
+        )
     if not split_counts["train"]:
         errors.append(
             "The prepared dataset has no training rows; training-ready data requires "

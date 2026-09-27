@@ -119,6 +119,32 @@ pytest
 로컬 실행 환경이 없으므로 **문서 읽기·리뷰·문서 수정** 위주로 쓴다. 클라우드 세션은 §3.2 절차로 CPU 테스트까지 돌릴 수 있다.
 `inflect-work/`에는 접근할 수 없으므로 런 기록이 필요한 질문은 CUDA 머신 세션으로 넘긴다.
 
+### 3.5 미검증 작업: KO 리샘플 클리핑 재생성 확인 (CUDA 머신)
+
+2026-09-27, `prepare`가 변환 클리핑을 스스로 거부하고 `--input-gain-db`를 받도록 고쳤다(DATA_QUALITY.md).
+**구현·회귀 테스트는 완료, Arona KR 실제 재생성 검증은 미실시**(원본이 CUDA 머신에만 있다).
+기존 `ko-arona-v1b`와 과거 실험은 그대로 둔다 — 덮어쓰지 않고 **새 디렉터리**에 만든다.
+
+```bash
+cd ~/inflect-work/prepared
+# 1) sox로 −3 dB를 걸기 전의 원본 사본으로 기본값(게인 0) 준비 → 실패해야 한다
+inflect-adapt prepare --manifest <KO 원본 매니페스트> --audio-root <KO 원본 wav 루트> \
+  --language ko --frontend ko-g2pkk --output ko-arona-v1c-gain0
+# 기대: 종료 코드 ≠ 0, ko-arona-v1c-gain0/ 없음, ko-arona-v1c-gain0.clipping-report.json 생성
+#       output_clipped_files ≈ 331, source_clipped_files ≈ 0, max_pre_clip_peak ≈ 1.021(+2.1 %)
+#       recommended_input_gain_db ≈ −1.2 (목표 피크 −1 dBFS)
+# 2) 보고서가 권한 게인으로 새 디렉터리에 준비 → 통과해야 한다
+inflect-adapt prepare ... --input-gain-db <권장값> --output ko-arona-v1c
+inflect-adapt audit --dataset ko-arona-v1c --require-no-new-symbols
+# 기대: dataset.json diagnostics.output_clipped_files == 0, audio_processing.input_gain_db == 권장값,
+#       audit.valid true, 행 수 3,348
+```
+
+매니페스트 경로·split 인자는 `inflect-work/prepared/KO-G2-RECORD.md`의 `ko-arona-v1b` 명령을 따른다.
+로컬 복제본(`inflect-work/data/ko/FINETUNE_Arona_KR`)이 이미 −3 dB 적용본이면 1)은 통과할 것이므로,
+원본(`/mnt/m`)으로 확인한다. 결과는 로드맵 변경 이력에 한 줄 남긴다. 이 수정은 J3·J4 링잉의 원인을 밝힌 것이 아니며
+(그쪽은 합성음 디코더 격자 톤, R16), 과거 실험을 다시 돌릴 이유가 되지 않는다.
+
 ---
 
 ## 4. 어떤 환경에서 무엇을 할 수 있나
@@ -128,7 +154,7 @@ pytest
 | 문서 읽기·수정, 로드맵 갱신 | ✅ | ✅ | ✅ |
 | 코드 수정 + `pytest` | ✅ | ✅ | 웹 세션만 |
 | 프론트엔드 덤프(`examples/frontend_review_dump.py`) | ✅ | ✅ | 웹 세션만 |
-| `prepare` / `audit` (원본 음성 필요) | ✅ | ❌ | ❌ |
+| `prepare` / `audit` (원본 음성 필요, §3.5 미검증 작업) | ✅ | ❌ | ❌ |
 | 학습·렌더·`evaluate`·청취 페이지 생성 | ✅ | ❌ | ❌ |
 | 청취·판정 (사용자) | 페이지를 연 브라우저 어디서든 | | |
 

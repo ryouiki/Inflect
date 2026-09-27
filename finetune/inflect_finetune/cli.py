@@ -98,6 +98,16 @@ def _add_prepare(subparsers: Any) -> None:
     parser.add_argument("--min-duration-seconds", type=float, default=0.05)
     parser.add_argument("--max-duration-seconds", type=float)
     parser.add_argument("--base-symbols", type=_path)
+    parser.add_argument(
+        "--input-gain-db",
+        type=float,
+        default=0.0,
+        help=(
+            "One gain in dB applied to every row before resampling, recorded in "
+            "dataset.json. Default 0. Preparation fails if conversion clips any "
+            "row, and the error names the gain that would avoid it."
+        ),
+    )
     parser.set_defaults(handler=_run_prepare)
 
 
@@ -406,6 +416,7 @@ def _run_prepare(args: argparse.Namespace) -> dict[str, Any]:
             min_duration_seconds=args.min_duration_seconds,
             max_duration_seconds=args.max_duration_seconds,
             base_symbols_path=args.base_symbols,
+            input_gain_db=args.input_gain_db,
         )
     )
 
