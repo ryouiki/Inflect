@@ -260,7 +260,7 @@ fluent-speaker review.
 - [Custom G2P/frontend hooks](docs/CUSTOM_G2P.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Consent and responsible use](docs/RESPONSIBLE_USE.md)
-- [Multilingual extension roadmap](docs/MULTILINGUAL_ROADMAP.md)
+- [Multilingual extension roadmap](docs/roadmap/README.md)
 
 ## Release gate
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import glob
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -40,10 +41,16 @@ HOP_LENGTH = 256
 FRAME_GRID_HZ = SAMPLE_RATE / HOP_LENGTH  # 93.75
 NOISE_SEED = 20260905
 
-# Real audio, if this machine happens to be the one the diagnosis ran on.
-DIAG_WORK = Path.home() / "inflect-work"
-ANCHOR_AUDIO = DIAG_WORK / "prepared/ko-arona-v1b/audio"
-RINGING_RENDERS = DIAG_WORK / "evals/ko-arona-micro-direct-20260904-final-round/audio"
+# Real audio, only where a machine points at it: a directory of real recordings and a
+# directory of renders known to ring. Without both, the one test that reads them skips;
+# every synthetic-signal test above and below runs regardless.
+def _env_dir(name: str) -> Path | None:
+    value = os.environ.get(name)
+    return Path(value) if value else None
+
+
+ANCHOR_AUDIO = _env_dir("INFLECT_TEST_REAL_AUDIO_DIR")
+RINGING_RENDERS = _env_dir("INFLECT_TEST_RINGING_RENDERS_DIR")
 
 
 def comb(period: int = HOP_LENGTH, seconds: float = 2.0, amplitude: float = 0.5) -> np.ndarray:
@@ -434,8 +441,8 @@ def test_caller_mistakes_raise_instead_of_returning_a_passing_score():
 
 
 @pytest.mark.skipif(
-    not (ANCHOR_AUDIO.is_dir() and RINGING_RENDERS.is_dir()),
-    reason="Needs the diagnosis working directory ~/inflect-work.",
+    not (ANCHOR_AUDIO and RINGING_RENDERS and ANCHOR_AUDIO.is_dir() and RINGING_RENDERS.is_dir()),
+    reason="Set INFLECT_TEST_REAL_AUDIO_DIR and INFLECT_TEST_RINGING_RENDERS_DIR to real recordings and ringing renders.",
 )
 def test_real_recordings_and_ringing_renders_separate_on_the_grid_screen():
     """The measurement that pinned the fault, against the audio that showed it.

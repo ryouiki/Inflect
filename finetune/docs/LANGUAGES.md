@@ -89,7 +89,7 @@ Proper nouns are where Open JTalk misreads. Supply a reading lexicon as a JSON
 object of surface/reading pairs and point `INFLECT_JA_LEXICON` at it:
 
 ```json
-{"鷹神": "たかかみ"}
+{"月詠": "つくよみ"}
 ```
 
 Its contents are part of the hashed frontend metadata, so changing the lexicon

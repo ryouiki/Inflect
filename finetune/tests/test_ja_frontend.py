@@ -107,7 +107,7 @@ def test_output_is_deterministic_and_uses_only_declared_symbols(
     declared = set(DECLARED_SYMBOLS)
     samples = [
         "こんにちは、今日はいい天気ですね。",
-        "アロナです！よろしくお願いします。",
+        "ミナです！よろしくお願いします。",
         "ジュース、コーヒー・お茶",
         "彼女は2026年8月30日に来ます。",
     ]
@@ -121,14 +121,16 @@ def test_output_is_deterministic_and_uses_only_declared_symbols(
 
 def test_reading_lexicon_rewrites_text_and_changes_the_metadata_hash() -> None:
     plain = create_frontend(language="ja")
-    overridden = JapaneseOpenJTalkFrontend(language="ja", lexicon={"鷹神": "たかかみ"})
+    overridden = JapaneseOpenJTalkFrontend(language="ja", lexicon={"月詠": "つくよみ"})
 
     assert plain.metadata()["configuration"]["lexicon"] == {}
-    assert overridden.metadata()["configuration"]["lexicon"] == {"鷹神": "たかかみ"}
+    assert overridden.metadata()["configuration"]["lexicon"] == {"月詠": "つくよみ"}
     assert plain.metadata() != overridden.metadata()
 
-    assert overridden.normalize("鷹神です。") == "たかかみです。"
-    assert _bare(_phonemes(overridden, "鷹神です。")).startswith("takakami")
+    # The proper noun Open JTalk misreads on its own; the lexicon's reading replaces it.
+    assert not _bare(_phonemes(plain, "月詠です。")).startswith("tsɯkɯjomi")
+    assert overridden.normalize("月詠です。") == "つくよみです。"
+    assert _bare(_phonemes(overridden, "月詠です。")).startswith("tsɯkɯjomi")
 
 
 def test_lexicon_is_loaded_from_the_environment(
@@ -137,10 +139,10 @@ def test_lexicon_is_loaded_from_the_environment(
 ) -> None:
     lexicon = tmp_path / "lexicon.json"
     lexicon.write_text(
-        json.dumps({"鷹神": "たかかみ"}, ensure_ascii=False), encoding="utf-8"
+        json.dumps({"月詠": "つくよみ"}, ensure_ascii=False), encoding="utf-8"
     )
     monkeypatch.setenv(LEXICON_ENVIRONMENT_VARIABLE, str(lexicon))
-    assert create_frontend(language="ja").normalize("鷹神") == "たかかみ"
+    assert create_frontend(language="ja").normalize("月詠") == "つくよみ"
 
     lexicon.write_text("[]", encoding="utf-8")
     with pytest.raises(RuntimeError, match="must be a JSON object"):

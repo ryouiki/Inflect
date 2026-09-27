@@ -8,10 +8,10 @@ or at a repository already in your Hugging Face cache.
 ```bash
 export INFLECT_ASR_MODEL_DIR=openai/whisper-large-v3-turbo   # already cached
 inflect-adapt evaluate \
-  --model-dir exports/ja-arona \
+  --model-dir exports/ja-voice \
   --manifest manifests/eval/ja-val-text.jsonl \
   --transcript-evaluator examples/transcript_evaluator_asr.py:evaluate_japanese \
-  --output evaluations/ja-arona
+  --output evaluations/ja-voice
 ```
 
 CER is compared in the script the language is actually pronounced in, not the
