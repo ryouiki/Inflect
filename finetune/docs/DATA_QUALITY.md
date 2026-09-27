@@ -57,7 +57,10 @@ The preparation and audit stages report:
 
 - decode and sample-rate failures;
 - channel count and duration;
-- peak level, clipping indicators, silence, and non-finite samples;
+- peak level, silence, and non-finite samples;
+- clipping, separately for what the recordings arrived with
+  (`source_clipped_files`) and what the conversion introduced
+  (`output_clipped_files`);
 - duplicate audio content and transcripts crossing split boundaries;
 - transcript and frontend failures;
 - unknown symbols and phoneme coverage;
@@ -66,6 +69,14 @@ The preparation and audit stages report:
 Configured duration and structural thresholds are recorded. A clip passing
 automated checks does not prove that its transcript, speaker identity,
 pronunciation, or audio quality is correct.
+
+`output_clipped_files` is worth reading before a first run. Resampling rings
+above the source peak, so a corpus mastered near full scale — anything limited
+at a fraction of a decibel below it — loses samples to the peak limit as a
+matter of course, and the loss is not visible in the source-side number. The
+fix is a uniform gain over the whole corpus before preparing, a few decibels
+down. Lowering only the rows that clipped would change the level relationship
+between rows, which is a property of the corpus rather than of those rows.
 
 ## Manual review
 

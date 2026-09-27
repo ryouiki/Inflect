@@ -135,6 +135,52 @@ def resolve_base_model(model: str | Path) -> Path:
     return resolved
 
 
+def validate_release_compatible_symbols(
+    symbols: Sequence[str],
+    *,
+    source: str,
+) -> tuple[str, ...]:
+    """Return an inventory that extends the release inventory without altering it.
+
+    An adaptation may append symbols, but the released rows must keep their
+    exact strings and positions. Embedding migration maps rows by symbol string,
+    so a reordered or altered prefix would silently move pretrained weights onto
+    other phonemes.
+
+    Both a prepared dataset's ``symbols.json`` and a base model's runtime
+    inventory are held to this rule, so a checkpoint adapted with extra symbols
+    can serve as the base of a later run.
+    """
+
+    values = list(symbols)
+    if not values or not all(isinstance(item, str) for item in values):
+        raise ValueError(f"{source} must contain a non-empty list of symbol strings.")
+    if values[0] != "_":
+        raise ValueError(f"{source} must begin with '_' at index 0.")
+    if len(values) < BASE_SYMBOL_COUNT:
+        raise ValueError(
+            f"{source} has {len(values)} symbols and must preserve the "
+            f"{BASE_SYMBOL_COUNT}-symbol release prefix."
+        )
+    if tuple(values[:BASE_SYMBOL_COUNT]) != tuple(RELEASE_BASE_SYMBOLS):
+        raise ValueError(
+            f"The first {BASE_SYMBOL_COUNT} symbols in {source} must exactly preserve the "
+            "published Inflect v2 release inventory and indices."
+        )
+    duplicate_positions = {
+        symbol: tuple(index for index, value in enumerate(values) if value == symbol)
+        for symbol, count in Counter(values).items()
+        if count > 1
+    }
+    if duplicate_positions != _RELEASE_DUPLICATE_POSITIONS:
+        raise ValueError(
+            f"{source} contains duplicate/custom-added symbols outside the "
+            "release-compatible duplicate apostrophe at base indices 174 and 176: "
+            f"{duplicate_positions}"
+        )
+    return tuple(values)
+
+
 def load_symbols(path: str | Path) -> tuple[str, ...]:
     """Load an ordered symbol inventory written by the preparation workflow."""
 
@@ -148,29 +194,7 @@ def load_symbols(path: str | Path) -> tuple[str, ...]:
         values = None
     if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
         raise ValueError(f"{source} must contain a JSON symbol list or a 'symbols' list.")
-    if not values or values[0] != "_":
-        raise ValueError("The ordered symbol inventory must begin with '_' at index 0.")
-    if len(values) < BASE_SYMBOL_COUNT:
-        raise ValueError(
-            f"The symbol inventory must preserve the {BASE_SYMBOL_COUNT}-symbol release prefix."
-        )
-    if tuple(values[:BASE_SYMBOL_COUNT]) != tuple(RELEASE_BASE_SYMBOLS):
-        raise ValueError(
-            "The first 178 symbols must exactly preserve the published Inflect v2 release "
-            "inventory and indices."
-        )
-    duplicate_positions = {
-        symbol: tuple(index for index, value in enumerate(values) if value == symbol)
-        for symbol, count in Counter(values).items()
-        if count > 1
-    }
-    if duplicate_positions != _RELEASE_DUPLICATE_POSITIONS:
-        raise ValueError(
-            "The symbol inventory contains duplicate/custom-added symbols outside the "
-            "release-compatible duplicate apostrophe at base indices 174 and 176: "
-            f"{duplicate_positions}"
-        )
-    return tuple(values)
+    return validate_release_compatible_symbols(values, source=str(source))
 
 
 @contextmanager
@@ -208,10 +232,15 @@ def load_runtime_components(base_model: str | Path) -> RuntimeComponents:
         synthesizer = models.SynthesizerTrn
         discriminator = models.MultiPeriodDiscriminator
         symbols = tuple(symbol_module.symbols)
-    if len(symbols) != BASE_SYMBOL_COUNT:
-        raise RuntimeError(
-            f"Expected {BASE_SYMBOL_COUNT} release symbols, found {len(symbols)}."
+    # The base may be a release or a checkpoint this toolkit adapted, and an
+    # adaptation is allowed to append symbols. What it may not do is disturb the
+    # released prefix, because migration copies rows by symbol identity.
+    try:
+        symbols = validate_release_compatible_symbols(
+            symbols, source=f"{runtime_root / 'text' / 'symbols.py'}"
         )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
     return RuntimeComponents(
         synthesizer_class=synthesizer,
         discriminator_class=discriminator,

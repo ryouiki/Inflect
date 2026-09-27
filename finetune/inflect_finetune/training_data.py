@@ -52,21 +52,36 @@ def read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def spectrogram(waveform: torch.Tensor, config: AudioConfig) -> torch.Tensor:
-    """Match the released VITS magnitude-spectrogram convention."""
+MAGNITUDE_FLOOR_POWER = 1.0e-6
 
-    padding = (config.filter_length - config.hop_length) // 2
-    if waveform.numel() < 2:
-        raise ValueError("Audio contains fewer than two samples.")
-    if waveform.numel() <= padding:
-        waveform = F.pad(waveform, (0, padding + 1 - waveform.numel()))
-    padded = F.pad(waveform[None, None], (padding, padding), mode="reflect")[0, 0]
-    window = torch.hann_window(config.win_length, dtype=waveform.dtype)
-    result = torch.stft(
+
+def magnitude_spectrogram(
+    signal: torch.Tensor, *, n_fft: int, hop_length: int, win_length: int
+) -> torch.Tensor:
+    """The one magnitude-spectrogram definition this toolkit uses.
+
+    The floor is added in the power domain and then square-rooted, which is
+    the released VITS convention. That detail is load-bearing rather than
+    cosmetic: clamping the magnitude instead puts the floor a hundred times
+    lower, and while only one side of the reconstruction loss clamped, two
+    identical waveforms scored ln(100) rather than zero and the objective paid
+    for a broadband noise floor in every quiet cell. Both sides come through
+    here so the two cannot drift apart again.
+
+    Takes one waveform or a batch, and owns the reflect padding so that no
+    caller applies it a second time.
+    """
+
+    batched = signal.dim() == 2
+    frames = signal if batched else signal[None]
+    padding = (n_fft - hop_length) // 2
+    padded = F.pad(frames[:, None], (padding, padding), mode="reflect")[:, 0]
+    window = torch.hann_window(win_length, device=padded.device, dtype=padded.dtype)
+    spectrum = torch.stft(
         padded,
-        n_fft=config.filter_length,
-        hop_length=config.hop_length,
-        win_length=config.win_length,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=win_length,
         window=window,
         center=False,
         pad_mode="reflect",
@@ -74,7 +89,28 @@ def spectrogram(waveform: torch.Tensor, config: AudioConfig) -> torch.Tensor:
         onesided=True,
         return_complex=True,
     )
-    return (result.abs().square() + 1.0e-6).sqrt()
+    magnitude = (spectrum.abs().square() + MAGNITUDE_FLOOR_POWER).sqrt()
+    return magnitude if batched else magnitude[0]
+
+
+def spectrogram(waveform: torch.Tensor, config: AudioConfig) -> torch.Tensor:
+    """Match the released VITS magnitude-spectrogram convention."""
+
+    padding = (config.filter_length - config.hop_length) // 2
+    if waveform.numel() < 2:
+        raise ValueError("Audio contains fewer than two samples.")
+    if waveform.numel() <= padding:
+        # A prepared row can be shorter than the reflect padding. A training
+        # segment never is, which is why this guard belongs to the dataset
+        # side rather than to the shared core: padding a segment there would
+        # quietly change the signal the loss is computed on.
+        waveform = F.pad(waveform, (0, padding + 1 - waveform.numel()))
+    return magnitude_spectrogram(
+        waveform,
+        n_fft=config.filter_length,
+        hop_length=config.hop_length,
+        win_length=config.win_length,
+    )
 
 
 class PreparedTTSDataset(Dataset):

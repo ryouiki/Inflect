@@ -13,9 +13,14 @@ internal checkpoint-selection process.
 - JSONL and CSV manifests with strict path and audio validation
 - deterministic 24 kHz mono preparation
 - leakage-safe train/validation splitting by transcript and recording group
-- eSpeak, prephonemized, and explicit custom Python frontends
+- eSpeak, prephonemized, bundled, and explicit custom Python frontends
+- Japanese and Korean frontends that add no symbols to the released inventory
 - symbol-aware embedding migration from Micro or Nano
 - staged generator/discriminator training with AMP and accumulation
+- opt-in controls for the frame-rate comb: adversarial gating, decoder
+  learning-rate warm-up, reconstruction-only polish, multi-resolution STFT
+  loss, decoder proximal anchor, upsampler freeze, generator averaging
+- automatic frame-grid artifact screens on every evaluated clip
 - atomic checkpoints and strict same-run resume validation
 - held-out waveform diagnostics and optional transcript evaluators
 - inference-only PyTorch and ONNX packages
@@ -88,8 +93,26 @@ and deterministic nonempty train/validation splits. Do not train until audit
 passes and a fluent speaker has inspected representative normalized text and
 phonemes.
 
-If eSpeak is unsuitable, use prephonemized rows or the documented
-[custom frontend hook](docs/CUSTOM_G2P.md).
+Some languages ship a bundled frontend instead. Japanese needs one because
+eSpeak cannot read kanji, and Korean because eSpeak merges the tense/plain
+consonant contrast:
+
+```bash
+python -m pip install ".[ja]"
+
+inflect-adapt prepare \
+  --manifest data/metadata.jsonl \
+  --audio-root data/audio \
+  --language ja \
+  --frontend ja-openjtalk \
+  --output prepared/ja
+
+inflect-adapt audit --dataset prepared/ja --require-no-new-symbols
+```
+
+If neither eSpeak nor a bundled frontend is suitable, use prephonemized rows or
+the documented [custom frontend hook](docs/CUSTOM_G2P.md). See
+[languages and symbols](docs/LANGUAGES.md) for the bundled list.
 
 ## 3. Train
 
@@ -119,7 +142,25 @@ inflect-adapt train \
 
 The public release checkpoint contains inference weights only. Training-only
 posterior and discriminator components are initialized by this toolkit, and
-new symbol embeddings are initialized deterministically.
+new symbol embeddings are initialized deterministically. Chaining a second run
+onto an export made with `--include-posterior` is the one exception, and it
+inherits from that export, never from the release.
+
+Adaptations of this model family have produced a steady comb of tones at
+multiples of the frame rate. The controls for it are off by default, so the
+command above behaves as it always has; `docs/TRAINING.md` explains what each
+one does and `docs/TROUBLESHOOTING.md` describes the symptom.
+
+```bash
+inflect-adapt train \
+  --base owensong/Inflect-Micro-v2 \
+  --dataset prepared/es \
+  --preset micro-12gb \
+  --adversarial-gating \
+  --decoder-lr-warmup-steps 300 \
+  --generator-ema-decay 0.999 \
+  --output runs/es-micro
+```
 
 ## 4. Resume safely
 
@@ -134,7 +175,9 @@ inflect-adapt train \
 
 Resume is accepted only for the same run identity. Changes to the base model,
 prepared data, symbols, frontend, public optimizer schema, or relevant
-configuration are rejected.
+configuration are rejected. The options are part of that identity, so this
+release's new option fields make checkpoints written by earlier versions
+unresumable, even at their defaults.
 
 The final resumable checkpoint is
 `runs/es-micro/checkpoints/adaptation-final.pth`. Step checkpoints and held-out
@@ -150,6 +193,7 @@ frontend metadata:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format pytorch \
   --output exports/es-micro
 ```
@@ -160,6 +204,7 @@ For ONNX:
 inflect-adapt export \
   --checkpoint runs/es-micro/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/es \
+  --package-template micro \
   --format onnx \
   --output exports/es-micro-onnx
 ```
@@ -171,9 +216,15 @@ inflect-adapt export \
   --checkpoint runs/custom/checkpoints/adaptation-final.pth \
   --prepared-dataset prepared/custom \
   --frontend-hook my_frontend.py \
+  --package-template micro \
   --format onnx \
   --output exports/custom
 ```
+
+`--package-template` supplies the runtime the package must carry, and a
+verified export requires it: a training checkpoint does not record which base
+model produced it. It resolves like `--base`, so `micro`, `nano`, a Hugging
+Face repository ID, or a local release directory all work.
 
 Export strips posterior, discriminator, optimizer, scheduler, scaler, RNG, and
 other training-only state. It writes `frontend.json`, `symbols.json`,
@@ -209,6 +260,7 @@ fluent-speaker review.
 - [Custom G2P/frontend hooks](docs/CUSTOM_G2P.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Consent and responsible use](docs/RESPONSIBLE_USE.md)
+- [Multilingual extension roadmap](docs/MULTILINGUAL_ROADMAP.md)
 
 ## Release gate
 
