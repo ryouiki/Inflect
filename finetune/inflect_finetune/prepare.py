@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 import uuid
@@ -33,6 +34,64 @@ class PreparationError(RuntimeError):
     """Raised when a source dataset cannot be prepared completely."""
 
 
+class OutputClippingError(PreparationError):
+    """Raised when conversion pushed samples past full scale in any row.
+
+    Such a dataset is never moved into place. The per-row diagnostics are kept
+    in a report beside the requested output directory instead.
+    """
+
+    def __init__(self, message: str, report_path: Path, recommended_gain_db: float):
+        super().__init__(message)
+        self.report_path = report_path
+        self.recommended_gain_db = recommended_gain_db
+
+
+# The peak a recommended gain aims for. Headroom below full scale, because the
+# resampler's overshoot depends on the material and a gain computed to land
+# exactly on 1.0 leaves nothing for the next corpus revision.
+RECOMMENDED_PEAK_DBFS = -1.0
+CLIPPING_REPORT_FORMAT = "inflect_output_clipping_report_v1"
+
+
+def _clipping_report_path(output_dir: Path) -> Path:
+    return output_dir.with_name(f"{output_dir.name}.clipping-report.json")
+
+
+def _remove_stale_clipping_report(output_dir: Path) -> None:
+    """Remove an earlier refusal for this output once a dataset stands there.
+
+    Only a report this module wrote is removed; anything else at that path is
+    left alone.
+    """
+    path = _clipping_report_path(output_dir)
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError, MemoryError):
+        return  # unreadable, or not a report; either way not ours to remove
+    if isinstance(report, dict) and report.get("format") == CLIPPING_REPORT_FORMAT:
+        try:
+            path.unlink()
+        except OSError:
+            pass  # the dataset is already in place; a leftover report must not fail it
+
+
+def recommended_input_gain_db(
+    current_gain_db: float,
+    measured_peak: float,
+    target_peak_dbfs: float = RECOMMENDED_PEAK_DBFS,
+) -> float:
+    """Return the corpus gain that brings the measured pre-clip peak to the target.
+
+    ``G_new = G + 20 log10(T / P)``, rounded down to 0.1 dB so the rounding
+    never costs headroom.
+    """
+    if measured_peak <= 0:
+        return current_gain_db
+    exact = current_gain_db + target_peak_dbfs - 20.0 * math.log10(measured_peak)
+    return math.floor(exact * 10.0 + 1e-9) / 10.0
+
+
 @dataclass(frozen=True)
 class PrepareOptions:
     """Options suitable for programmatic use and a future CLI."""
@@ -49,6 +108,7 @@ class PrepareOptions:
     min_duration_seconds: float = 0.05
     max_duration_seconds: float | None = None
     base_symbols_path: Path | None = None
+    input_gain_db: float = 0.0
 
     def validate(self) -> None:
         """Validate preparation settings before any output is written."""
@@ -66,6 +126,8 @@ class PrepareOptions:
             raise ValueError("frontend_hook may only be used when frontend='custom'.")
         if self.sample_rate != 24_000:
             raise ValueError("Inflect prepared datasets must use a 24,000 Hz sample rate.")
+        if not math.isfinite(self.input_gain_db):
+            raise ValueError("input_gain_db must be finite.")
 
 
 def _sha256(path: Path) -> str:
@@ -214,8 +276,10 @@ def _write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
-def _human_summary(dataset: dict[str, Any]) -> str:
+def _human_summary(dataset: dict[str, Any], conversion: dict[str, Any]) -> str:
     diagnostics = dataset["diagnostics"]
+    peak_dbfs = conversion["max_pre_clip_peak_dbfs"]
+    peak_dbfs_text = "silent" if peak_dbfs is None else f"{peak_dbfs:+.2f} dBFS"
     return "\n".join(
         [
             "Inflect prepared dataset",
@@ -229,11 +293,70 @@ def _human_summary(dataset: dict[str, Any]) -> str:
             f"Audio duration: {diagnostics['total_duration_seconds']:.2f} seconds",
             f"Resampled files: {diagnostics['resampled_files']}",
             f"Downmixed files: {diagnostics['downmixed_files']}",
+            f"Input gain: {conversion['input_gain_db']:+.2f} dB",
+            f"Pre-clip peak: {conversion['max_pre_clip_peak']:.4f} ({peak_dbfs_text})",
+            f"Source-clipped files: {diagnostics['source_clipped_files']}",
+            f"Output-clipped files: {diagnostics['output_clipped_files']}",
             f"Added symbols: {diagnostics['added_symbol_count']}",
             f"Base-symbol coverage before extension: "
             f"{diagnostics['base_symbol_coverage_fraction']:.6f}",
             "",
         ]
+    )
+
+
+def _refuse_output_clipping(
+    output_dir: Path,
+    audio_diagnostics: list[dict[str, Any]],
+    *,
+    input_gain_db: float,
+    peak_limit: float,
+) -> None:
+    """Fail preparation when conversion clipped any row, keeping the evidence.
+
+    Clipping here is what the conversion did, not what the recordings arrived
+    with: resampling rings above the source peak, and the peak limit then cuts
+    it. The verdict and the recommended gain both come from the pre-clip peak,
+    never from the written file, whose peak of 1.0 cannot say whether anything
+    was cut.
+    """
+    clipped = [item for item in audio_diagnostics if item["output_clipped_samples"] > 0]
+    if not clipped:
+        return
+    peak = max(item["pre_clip_peak"] for item in audio_diagnostics)
+    recommended = recommended_input_gain_db(input_gain_db, peak)
+    report_path = _clipping_report_path(output_dir)
+    report = {
+        "format": CLIPPING_REPORT_FORMAT,
+        "verdict": "rejected",
+        "reason": "conversion pushed samples past the peak limit",
+        "input_gain_db": input_gain_db,
+        "peak_limit": peak_limit,
+        "rows": len(audio_diagnostics),
+        "output_clipped_files": len(clipped),
+        "output_clipped_samples": sum(item["output_clipped_samples"] for item in clipped),
+        "source_clipped_files": sum(
+            item["source_clipped_fraction"] > 0 for item in audio_diagnostics
+        ),
+        "max_pre_clip_peak": peak,
+        "max_pre_clip_peak_dbfs": 20.0 * math.log10(peak),
+        "recommended_target_peak_dbfs": RECOMMENDED_PEAK_DBFS,
+        "recommended_input_gain_db": recommended,
+        "clipped_rows": clipped,
+    }
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    raise OutputClippingError(
+        f"Conversion clipped {len(clipped)} of {len(audio_diagnostics)} rows "
+        f"({report['output_clipped_samples']} samples; pre-clip peak "
+        f"{peak:.4f} = {report['max_pre_clip_peak_dbfs']:+.2f} dBFS at input gain "
+        f"{input_gain_db:+.2f} dB). No dataset was written. Prepare again with "
+        f"--input-gain-db {recommended:.1f}, which applies one gain to the whole "
+        f"corpus and brings the peak to {RECOMMENDED_PEAK_DBFS:.1f} dBFS. "
+        f"Details: {report_path}",
+        report_path,
+        recommended,
     )
 
 
@@ -277,10 +400,13 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
         if options.base_symbols_path
         else BASE_SYMBOLS
     )
+    # -0.0 is the default gain; without this it would be recorded as a signed zero.
+    input_gain_db = 0.0 if options.input_gain_db == 0.0 else float(options.input_gain_db)
     audio_options = AudioOptions(
         sample_rate=options.sample_rate,
         min_duration_seconds=options.min_duration_seconds,
         max_duration_seconds=options.max_duration_seconds,
+        input_gain_db=input_gain_db,
     )
 
     stage = output_dir.with_name(f".{output_dir.name}.preparing-{uuid.uuid4().hex}")
@@ -327,7 +453,26 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
             if row.speaker:
                 prepared["speaker"] = row.speaker
             prepared_rows.append(prepared)
-            audio_diagnostics.append(audio.to_dict())
+            audio_diagnostics.append({"audio": prepared["audio"], **audio.to_dict()})
+
+        _refuse_output_clipping(
+            output_dir,
+            audio_diagnostics,
+            input_gain_db=input_gain_db,
+            peak_limit=audio_options.peak_limit,
+        )
+        max_pre_clip_peak = max(item["pre_clip_peak"] for item in audio_diagnostics)
+        conversion = {
+            "input_gain_db": input_gain_db,
+            "peak_limit": audio_options.peak_limit,
+            "output_clipped_samples": sum(
+                item["output_clipped_samples"] for item in audio_diagnostics
+            ),
+            "max_pre_clip_peak": max_pre_clip_peak,
+            "max_pre_clip_peak_dbfs": (
+                20.0 * math.log10(max_pre_clip_peak) if max_pre_clip_peak > 0 else None
+            ),
+        }
 
         phoneme_texts = [row["phonemes"] for row in prepared_rows]
         base_coverage = audit_symbol_coverage(phoneme_texts, base_symbols)
@@ -376,6 +521,21 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
             "speaker": dataset_speaker,
             "frontend": frontend_metadata,
             "source_manifest_sha256": _sha256(manifest_path),
+            # dataset.json is hashed into every run identity, so a different
+            # gain must make it a different dataset. The default gain records
+            # nothing, keeping dataset.json byte-identical to one prepared
+            # before the option existed; the measured peak goes to the unhashed
+            # preparation report instead.
+            **(
+                {
+                    "audio_processing": {
+                        "input_gain_db": input_gain_db,
+                        "peak_limit": audio_options.peak_limit,
+                    }
+                }
+                if input_gain_db != 0.0
+                else {}
+            ),
             "split_seed": options.split_seed,
             "validation_fraction": options.validation_fraction,
             "split": split_metadata,
@@ -419,6 +579,7 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
         report = {
             "format": "inflect_preparation_report_v1",
             "dataset": dataset,
+            "conversion": conversion,
             "audio": audio_diagnostics,
             "symbol_coverage_before_extension": base_coverage.to_dict(),
         }
@@ -441,12 +602,13 @@ def prepare_dataset(options: PrepareOptions) -> dict[str, Any]:
             encoding="utf-8",
         )
         (stage / "PREPARATION_REPORT.txt").write_text(
-            _human_summary(dataset), encoding="utf-8"
+            _human_summary(dataset, conversion), encoding="utf-8"
         )
 
         if output_dir.exists():
             output_dir.rmdir()
         stage.replace(output_dir)
+        _remove_stale_clipping_report(output_dir)
         return dataset
     except Exception:
         shutil.rmtree(stage, ignore_errors=True)

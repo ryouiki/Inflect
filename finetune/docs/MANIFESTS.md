@@ -83,7 +83,9 @@ prepared/
 Prepared rows contain the converted audio path, original and normalized text,
 phoneme string, duration, split metadata, and any supported source identifiers.
 `dataset.json` records the language, frontend identity, hashes, speaker,
-split configuration, counts, and diagnostics. `symbols.json` contains the
+split configuration, counts, diagnostics, and a nonzero input gain.
+`preparation_report.json` adds the per-row audio diagnostics, including the
+peak before the clip. `symbols.json` contains the
 ordered inventory used to migrate embedding rows by symbol identity.
 
 Prepared data is immutable input. Correct the source data or frontend and run

@@ -32,6 +32,17 @@ Preserve the original file, decode it with a trusted audio tool, and convert a
 copy to a standard uncompressed WAV. Confirm sample rate, channels, duration,
 and finite samples. Do not rename a compressed file to `.wav`.
 
+## Preparation refused: conversion clipped
+
+`prepare` stops without writing a dataset when conversion (the input gain, then
+resampling) pushed any row past full scale. Read `<output>.clipping-report.json` beside the requested output
+directory: it lists the clipped rows, the largest pre-clip peak, and a
+recommended `--input-gain-db`. Prepare again with that gain; the same output
+directory may be reused. One gain applies to every row, so the level
+relationship between rows is kept. A nonzero gain is a different dataset for run
+identity and draws a different validation split. See
+[data quality](DATA_QUALITY.md).
+
 ## eSpeak or phonemizer failure
 
 Confirm the installed eSpeak NG library is available, the language code exists,

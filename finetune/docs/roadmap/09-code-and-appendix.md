@@ -34,6 +34,7 @@
 | C25 | 다른 run의 가중치로 새 레시피 시작(`--init-from`), posterior · decoder만 학습하는 polish 모드 | `training`(init block · `decoder_polish_mode`) | M7 | ✅ 완료(`79b8d29` · `59f91bf`). J2–J4가 `--init-from`을 썼다. *(2026-09-27에 표에 추가)* |
 | C26 | 판별기 갱신 순서 옵션(`discriminator_update_order`: joint 기본 · first) | `training` · `cli` | M7 | ✅ 완료(2026-09-27, `96d521a`). 기본값은 이전과 같은 계산이다. J4에서 시험했다(§3.36). *(2026-09-27에 표에 추가)* |
 | C27 | 청취 페이지 문항 선택지(화자 · 명료성 · 최소 · 짧은 페이지 · 클릭 · 음높이 · 잡음) | `examples/build_blind_ab_page.py` · `tally_verdict.py` | M7 | ✅ 완료(`2c52471` · `72bba9f` · `d04c3b2` · `50e27ce` · `d745029` · `bade172` · `96d521a` · `ec25767`). 선택지가 없는 페이지는 바이트 동일하게 다시 만들어진다. *(2026-09-27에 표에 추가)* |
+| C28 | 변환 클리핑 거부 + 코퍼스 균일 입력 게인(`--input-gain-db`) | `audio.convert_wav()` · `prepare._refuse_output_clipping()` · `audit.audit_dataset()` · `cli` | M2 | ✅ 완료(2026-09-27). 판정은 clip 전 피크로 한다. 게인 0이면 오디오와 `dataset.json`이 바이트 단위로 그대로다(`ja-spkA-v3`로 확인). 0이 아닌 게인은 `dataset.json.audio_processing`에 기록되고, 오디오 해시가 바뀌므로 검증셋도 새로 뽑힌다. 분할 로직 자체는 바꾸지 않았다. 설명은 [DATA_QUALITY.md](../DATA_QUALITY.md), 실측은 [M2 보완](02-milestones.md#m2--데이터-준비--통과-2026-09-04). *(2026-09-27에 표에 추가)* |
 
 학습 코어(`training.py`)와 임베딩 마이그레이션(`checkpoint.py`)은 원래 **변경 대상이
 아니었다.** 2026-09-05 사용자가 링잉 대응(개선안 b)을 승인하면서 이 제약을 해제했고,

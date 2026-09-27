@@ -51,7 +51,10 @@ Prepared rows may also preserve `id`, `speaker`, `group_id`, and
 `dataset.json` records the language, sample rate, frontend, source-manifest
 hash, frontend source/metadata hashes where applicable, the bundled frontend
 name where one was used, speaker, split seed, row counts, and aggregate
-diagnostics. `symbols.json` records the ordered
+diagnostics. A nonzero `--input-gain-db` adds `audio_processing` (the gain and
+the peak limit); the default gain adds nothing. `prepare` writes no dataset
+when conversion clipped any row, so a prepared dataset's
+`diagnostics.output_clipped_files` is 0. `symbols.json` records the ordered
 symbol inventory and its relationship to the base inventory.
 
 ## Checkpoint migration
