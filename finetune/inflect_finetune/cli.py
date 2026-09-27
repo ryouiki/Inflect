@@ -146,6 +146,23 @@ def _add_train(subparsers: Any) -> None:
     parser.add_argument("--preset", default="balanced")
     parser.add_argument("--resume", type=_path)
     parser.add_argument(
+        "--branch-from",
+        type=_path,
+        help=(
+            "A training checkpoint from another run to continue in this new output "
+            "directory, with its optimizer, scheduler, scaler and RNG state. Only "
+            "--max-steps may differ from that run; every other setting must match."
+        ),
+    )
+    parser.add_argument(
+        "--init-from",
+        type=_path,
+        help=(
+            "A training checkpoint whose generator and discriminator weights start this "
+            "new run. Its optimizer, scheduler, scaler, RNG state and step are not used."
+        ),
+    )
+    parser.add_argument(
         "--device", default=argparse.SUPPRESS, help="auto, cpu, cuda, or cuda:N"
     )
     parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
@@ -222,11 +239,13 @@ def _add_train(subparsers: Any) -> None:
     )
     parser.add_argument(
         "--decoder-polish-mode",
-        choices=("adversarial", "recon"),
+        choices=("adversarial", "recon", "posterior_decoder", "posterior_decoder_recon"),
         default=argparse.SUPPRESS,
         help=(
             "'recon' trains only the decoder during the polish stage, against "
-            "reconstruction losses with no discriminator."
+            "reconstruction losses with no discriminator. 'posterior_decoder' trains "
+            "the posterior encoder and the decoder together and holds the text side; "
+            "'posterior_decoder_recon' does the same without the discriminator."
         ),
     )
     parser.add_argument(
@@ -262,6 +281,17 @@ def _add_train(subparsers: Any) -> None:
         default=argparse.SUPPRESS,
         metavar="DECAY",
         help="Keep an averaged copy of the generator; 0 disables it.",
+    )
+    parser.add_argument(
+        "--discriminator-update-order",
+        choices=("joint", "first"),
+        default=argparse.SUPPRESS,
+        help=(
+            "'joint' steps the discriminator together with the generator, after the "
+            "generator's adversarial terms. 'first' steps it before those terms, so "
+            "they are scored by the updated discriminator (needs "
+            "--gradient-accumulation-steps 1)."
+        ),
     )
     parser.set_defaults(handler=_run_train)
 
@@ -428,6 +458,8 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
 
     override_names = (
         "resume",
+        "branch_from",
+        "init_from",
         "device",
         "seed",
         "batch_size",
@@ -455,6 +487,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "decoder_freeze_upsamplers",
         "posterior_init",
         "generator_ema_decay",
+        "discriminator_update_order",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}

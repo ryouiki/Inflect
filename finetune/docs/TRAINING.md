@@ -186,6 +186,15 @@ If memory is exhausted, reduce the batch size and increase accumulation. Do not
 compare two runs as equivalent if precision, segment length, effective batch,
 or optimization settings differ.
 
+`--discriminator-update-order` is experimental. The default, `joint`, steps the
+discriminator together with the generator: the generator's adversarial terms are
+scored by the discriminator as it was before that step. `first` steps the
+discriminator before those terms are computed, as the VITS reference loop does.
+It needs `--gradient-accumulation-steps 1`. Every packaged preset accumulates,
+so pass that flag explicitly, and compare `first` only against a `joint` run that
+also uses accumulation 1; otherwise the effective batch differs too. Neither
+order is recommended over the other yet.
+
 ## Outputs
 
 ```text
@@ -257,6 +266,72 @@ re-derived from the base the run started from. The averaged generator is the
 only new state, and it rides in the checkpoint under `generator_ema`. A run
 that asks for an average and resumes from a checkpoint written without one is
 rejected rather than silently restarted from the base weights.
+
+## Branching a finished run
+
+`max_steps` is part of the identity, so a finished run cannot be resumed with a
+larger budget, and chaining through an export (`--base`) starts over: a fresh
+discriminator, empty optimizer moments, schedulers at zero, and the stage
+schedule replayed from step 0. To give a run more steps and keep everything it
+has learned, branch it into a new output directory:
+
+```bash
+inflect-adapt train \
+  --base exports/ja-base --dataset prepared/ja --preset balanced \
+  --max-steps 20000 \
+  --branch-from runs/ja-10k/checkpoints/adaptation-step-00010000.pth \
+  --output runs/ja-20k
+```
+
+Every other setting must match the parent's. The branch's identity is compared
+with the parent's field by field and only `run_id` and `options.max_steps` may
+differ; anything else is named and refused before the new directory is created.
+The parent is only read.
+
+The branch inherits the generator, discriminator, both optimizers, both
+schedulers, the AMP scaler, the RNG states, the step, the epoch and the stage.
+Before the first update it compares each of those with the parent file and
+writes `branch-check.json`; if any differs, it stops there. Its
+`run-identity.json` records the parent under `branch`, and the branch can itself
+be resumed with `--resume` like any run.
+
+One thing it cannot inherit is the data order. The loader's shuffle generator
+is rebuilt from `seed` in every process and is not in any checkpoint, so the
+branch replays the same sequence of permutations from the first one, and the
+parent's last partial epoch is not finished. A branch is therefore not an
+uninterrupted run to the new budget; record it as a restart of the shuffle
+order at the branch point.
+
+## Starting a new recipe from another run's weights
+
+A branch continues a run. To try a *different* recipe from where a run's weights
+ended, pass `--init-from` instead. It loads the checkpoint's generator and
+discriminator weights and nothing else: the optimizers start empty, the
+schedulers and the step start at zero, and the new options may differ freely.
+`--base` must still be the base that run was warm-started from, and
+`posterior_init` must stay `fresh` (the checkpoint's posterior replaces it).
+
+Before the first update the run writes `init-check.json`: the loaded weights
+compared bit for bit with the file, the optimizer confirmed empty, and the
+parameter groups that can move compared with the ones the stage enables. It
+stops there if any of these differs. `run-identity.json` pins the checkpoint by
+sha256 under `init`, and a resume rebuilds that block from the same file.
+
+`decoder_polish_mode=posterior_decoder` trains the posterior encoder and the
+decoder together during the polish stage and holds `enc_p`, `dp` and `flow`;
+the discriminator stays on. To train the acoustic path alone from the first
+step, set the schedule explicitly — otherwise the mode waits behind the preset's
+warm-up and unfreeze steps:
+
+```json
+{"posterior_warmup_steps": 0, "decoder_unfreeze_step": 0,
+ "decoder_polish_mode": "posterior_decoder", "kl_loss_weight": 0.0,
+ "duration_loss_weight": 0.0}
+```
+
+With the KL term at zero nothing ties the posterior to the text prior any more,
+so a run like this is a reconstruction experiment. Its checkpoint is not a
+text-to-speech model until the text side is fitted to the new latents again.
 
 ## Checkpoint selection
 

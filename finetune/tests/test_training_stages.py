@@ -8,6 +8,7 @@ import pytest
 
 from inflect_finetune.training import (
     DECODER_POLISH_MODES,
+    DISCRIMINATOR_UPDATE_ORDERS,
     POSTERIOR_INITS,
     STAGE_ADAPT,
     STAGE_DECODER,
@@ -41,8 +42,14 @@ def test_stage_boundaries_select_the_stage_for_the_next_step() -> None:
 def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -> None:
     """The parser spells these choices out again, so the two lists must agree."""
 
-    assert DECODER_POLISH_MODES == ("adversarial", "recon")
+    assert DECODER_POLISH_MODES == (
+        "adversarial",
+        "recon",
+        "posterior_decoder",
+        "posterior_decoder_recon",
+    )
     assert POSTERIOR_INITS == ("fresh", "inherit")
+    assert DISCRIMINATOR_UPDATE_ORDERS == ("joint", "first")
 
 
 @pytest.mark.parametrize(
@@ -54,11 +61,26 @@ def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -
         ({"decoder_proximal_weight": -1e-9}, "decoder_proximal_weight must be non-negative."),
         (
             {"decoder_polish_mode": "reconstruction"},
-            "decoder_polish_mode must be one of ['adversarial', 'recon'].",
+            (
+                "decoder_polish_mode must be one of "
+                "['adversarial', 'recon', 'posterior_decoder', 'posterior_decoder_recon']."
+            ),
         ),
         ({"posterior_init": "warm"}, "posterior_init must be one of ['fresh', 'inherit']."),
         ({"generator_ema_decay": 1.0}, "generator_ema_decay must be at least 0 and below 1."),
         ({"generator_ema_decay": -0.001}, "generator_ema_decay must be at least 0 and below 1."),
+        (
+            {"discriminator_update_order": "after"},
+            "discriminator_update_order must be one of ['joint', 'first'].",
+        ),
+        (
+            # _options() keeps the dataclass default of four accumulation steps.
+            {"discriminator_update_order": "first"},
+            (
+                "discriminator_update_order='first' steps the discriminator on every batch; "
+                "use gradient_accumulation_steps=1."
+            ),
+        ),
     ],
 )
 def test_a_new_setting_outside_its_domain_is_rejected_by_name(

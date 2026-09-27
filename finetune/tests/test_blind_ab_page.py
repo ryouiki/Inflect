@@ -497,3 +497,318 @@ def test_tally_refuses_a_verdict_from_another_page(tmp_path):
     tally = load_tally()
     with pytest.raises(SystemExit):
         tally.main(["--mapping", str(mapping), "--verdict", str(verdict)])
+
+
+def test_the_speaker_question_is_opt_in_and_absent_otherwise(page_module, tmp_path):
+    """Pages built without the flag must stay byte-comparable with older rounds."""
+
+    plain = build_small_page(page_module, tmp_path / "plain")
+    page = (plain / "index.html").read_text(encoding="utf-8")
+    assert 'data-field="speaker"' not in page
+    assert "speaker" not in json.loads((plain / "mapping.json").read_text(encoding="utf-8"))["axes"]
+
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / "asked", "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path / "asked", "anchor", identifiers, 0.4)
+    output = tmp_path / "asked" / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--speaker-axis",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    import html as _html
+
+    assert _html.escape(page_module.SPEAKER_AXIS["question"]) in page
+    # One question per track: two rows, each with the system, the anchor and a duplicate.
+    assert page.count('data-field="speaker"') == 6
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["axes"]["speaker"] == page_module.SPEAKER_AXIS
+    # It asks about the target voice, not about "the recording": the listener is
+    # not told which track the recording is.
+    assert "실물" not in page_module.SPEAKER_AXIS["question"]
+
+
+def test_the_tally_counts_the_speaker_answers_when_the_page_asked_for_them():
+    tally = load_tally()
+    assert tally.axis_names({"quality": {}, "defect": {}, "language": {}, "ringing": {}}) == (
+        "quality",
+        "defect",
+        "language",
+        "ringing",
+    )
+    assert tally.axis_names(
+        {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}}
+    )[-1] == "speaker"
+
+
+def test_the_clarity_question_is_opt_in_and_absent_otherwise(page_module, tmp_path):
+    """A page built without --clarity-axis carries neither the question nor the axis."""
+
+    plain = build_small_page(page_module, tmp_path / "plain")
+    page = (plain / "index.html").read_text(encoding="utf-8")
+    assert 'data-field="clarity"' not in page
+    assert "clarity" not in json.loads((plain / "mapping.json").read_text(encoding="utf-8"))["axes"]
+
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / "asked", "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path / "asked", "anchor", identifiers, 0.4)
+    output = tmp_path / "asked" / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--speaker-axis",
+            "--clarity-axis",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    import html as _html
+
+    assert _html.escape(page_module.CLARITY_AXIS["question"]) in page
+    assert page.count('data-field="clarity"') == 6
+    # Both optional questions sit on every track, speaker first.
+    assert page.count('data-field="speaker"') == 6
+    assert page.index('data-field="speaker"') < page.index('data-field="clarity"')
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["axes"]["clarity"] == page_module.CLARITY_AXIS
+
+
+def test_the_tally_counts_the_clarity_answers_when_the_page_asked_for_them():
+    tally = load_tally()
+    assert tally.axis_names(
+        {"quality": {}, "defect": {}, "language": {}, "ringing": {}, "speaker": {}, "clarity": {}}
+    )[-2:] == ("speaker", "clarity")
+    assert "clarity" not in tally.axis_names({"quality": {}, "defect": {}, "language": {}, "ringing": {}})
+
+
+def test_the_minimal_page_asks_three_questions_per_track_and_one_optional_memo(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path, "anchor", identifiers, 0.4)
+    output = tmp_path / "round"
+    assert page_module.main(
+        [
+            "--system", f"early={first}",
+            "--anchor", str(anchor),
+            "--rows", "2",
+            "--catch-rows", "2",
+            "--minimal-axes",
+            "--output", str(output),
+        ]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    # Two rows, three tracks each (system, anchor, duplicate).
+    for field in ("quality", "ringing", "clarity"):
+        assert page.count(f'data-field="{field}"') == 6
+    for field in ("defect", "language", "speaker", "most_natural", "most_blurred", "comment",
+                  "ring_detail", "ring_order"):
+        assert f'data-field="{field}"' not in page
+    assert page.count('data-field="memo" data-optional="1"') == 2
+    # The memo is neither outlined nor counted as a blank.
+    assert '!element.value && !element.dataset.optional' in page
+    assert "메모는 선택이다." in page and "자유기술은 필수다." not in page
+    # No defect question on this page, so the ringing question does not ask
+    # for ringing to be counted there.
+    assert "결함 항목" not in page
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert set(axes) == {"quality", "ringing", "clarity", "memo", "levelling"}
+    assert axes["ringing"]["options"] == page_module.RINGING_AXIS["options"]
+
+
+def test_the_minimal_page_refuses_the_opt_in_axes(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="minimal-axes"):
+        page_module.main(
+            ["--system", f"early={first}", "--rows", "2", "--minimal-axes", "--speaker-axis",
+             "--output", str(tmp_path / "round")]
+        )
+
+
+def test_the_tally_reads_the_memo_and_older_verdicts_without_one():
+    tally = load_tally()
+    assert "memo" in tally.ROW_TEXT
+    assert tally.axis_names({"quality": {}, "ringing": {}, "clarity": {}}) == (
+        "quality",
+        "ringing",
+        "clarity",
+    )
+
+
+def test_the_short_page_asks_ringing_and_content_per_track_and_one_optional_memo(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    anchor = evaluate_output(tmp_path, "anchor", identifiers, 0.4)
+    output = tmp_path / "round"
+    assert page_module.main(
+        ["--system", f"early={first}", "--anchor", str(anchor), "--rows", "2", "--catch-rows", "1",
+         "--short-axes", "--output", str(output)]
+    ) == 0
+    page = (output / "index.html").read_text(encoding="utf-8")
+    tracks = page.count('data-field="ringing"')
+    assert tracks == page.count('data-field="content"') and tracks >= 5
+    for field in ("quality", "defect", "language", "clarity", "speaker", "comment", "ring_order", "most_natural"):
+        assert f'data-field="{field}"' not in page
+    assert page.count('data-field="memo" data-optional="1"') == 2
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert set(axes) == {"ringing", "content", "memo", "levelling"}
+    assert load_tally().axis_names(axes) == ("ringing", "content")
+
+
+def _built(module, tmp_path, name, extra, monkeypatch):
+    """Build one short page with a fixed letter seed; return its page bytes and path-free mapping."""
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path / name, "early", identifiers, 0.2)
+    second = evaluate_output(tmp_path / name, "late", identifiers, 0.3)
+    output = tmp_path / name / "round"
+    monkeypatch.setattr(module.os, "urandom", lambda count: bytes(range(count)))
+    assert module.main(
+        ["--system", f"early={first}", "--system", f"late={second}", "--rows", "3", "--catch-rows", "1",
+         "--catch-system", "early", "--short-axes", *extra, "--output", str(output)]
+    ) == 0
+    mapping = (output / "mapping.json").read_text(encoding="utf-8").replace(str(tmp_path / name), "<tmp>")
+    return (output / "index.html").read_bytes(), mapping
+
+
+def test_the_short_page_is_unchanged_without_the_click_axis(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the page builder of the Q2 round (commit fabe711) wrote."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "fabe711:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_q2.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_q2", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    assert _built(old, tmp_path, "old", [], monkeypatch) == _built(page_module, tmp_path, "new", [], monkeypatch)
+
+
+def test_the_click_axis_adds_one_graded_question_per_track(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "click", ["--click-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="click"') == text.count('data-field="content"') and tracks >= 7
+    axes = json.loads(mapping)["axes"]
+    assert list(axes) == ["ringing", "click", "content", "memo", "levelling"]
+    assert axes["click"]["options"][0] == "0 · 없음"
+    assert load_tally().axis_names(axes) == ("ringing", "content", "click")
+
+
+def test_the_click_axis_needs_the_short_page(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--click-axis", "--output", str(tmp_path / "round")])
+    with pytest.raises(SystemExit, match="click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--minimal-axes", "--click-axis",
+                          "--output", str(tmp_path / "round2")])
+
+
+def test_the_tally_shows_a_short_page_duplicate_on_every_question(tmp_path, capsys):
+    tally = load_tally()
+    axes = {"ringing": {"options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"]},
+            "click": {"options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"]},
+            "content": {"options": ["없음", "있음"]}}
+    mapping = {"page_key": "p", "axes": axes, "catch_rows": ["0057"],
+               "rows": {"0057": {"A": "s0", "B": "s1", "C": "s0#catch"}}}
+    verdict = {"page_key": "p", "rows": {"0057": {"tracks": {
+        "A": {"ringing": "1 · 주의해 들으면 있다", "click": "2 · 뚜렷하다", "content": "없음"},
+        "B": {"ringing": "1 · 주의해 들으면 있다", "click": "0 · 없음", "content": "없음"},
+        "C": {"ringing": "1 · 주의해 들으면 있다", "click": "1 · 주의해 들으면 있다", "content": "없음"}}}}}
+    (tmp_path / "m.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "v.json").write_text(json.dumps(verdict, ensure_ascii=False), encoding="utf-8")
+    assert tally.main(["--mapping", str(tmp_path / "m.json"), "--verdict", str(tmp_path / "v.json")]) == 0
+    out = capsys.readouterr().out
+    assert "catch row 0057 · s0 appears as ['A', 'C']" in out
+    assert "옵션 단차 1단" in out and "click" in out and "ringing" in out
+
+
+def test_the_short_click_page_is_unchanged_without_the_speaker_axis(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder wrote before the speaker question could join the short page (4fc5a19)."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "4fc5a19:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_q2i.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_q2i", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    assert _built(old, tmp_path, "old", ["--click-axis"], monkeypatch) == _built(page_module, tmp_path, "new", ["--click-axis"], monkeypatch)
+
+
+def test_the_short_page_takes_a_speaker_question_last(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "spk", ["--click-axis", "--speaker-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="speaker"') == text.count('data-field="click"') >= 7
+    first_track = text[text.index('data-field="ringing"'):]
+    assert first_track.index('data-field="content"') < first_track.index('data-field="speaker"')
+    axes = json.loads(mapping)["axes"]
+    assert axes["speaker"] == page_module.SPEAKER_AXIS
+    assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "click")
+    with pytest.raises(SystemExit, match="short-axes"):
+        identifiers = [f"{index:04d}" for index in range(1, 5)]
+        first = evaluate_output(tmp_path / "x", "early", identifiers, 0.2)
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--clarity-axis",
+                          "--output", str(tmp_path / "x" / "round")])
+
+
+def test_the_short_speaker_click_page_is_unchanged_without_the_pitch_and_noise_axes(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder of the J2 and J3 pages wrote (bade172)."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "bade172:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_j3.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_j3", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    for extra in ([], ["--click-axis", "--speaker-axis"]):
+        name = "-".join(flag.strip("-") for flag in extra) or "plain"
+        assert _built(old, tmp_path, f"old-{name}", extra, monkeypatch) == _built(
+            page_module, tmp_path, f"new-{name}", extra, monkeypatch
+        )
+
+
+def test_the_pitch_and_noise_axes_join_the_short_page_in_a_fixed_order(page_module, tmp_path, monkeypatch):
+    page, mapping = _built(page_module, tmp_path, "pn", ["--pitch-axis", "--noise-axis", "--speaker-axis"], monkeypatch)
+    text = page.decode("utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="pitch"') == text.count('data-field="noise"') >= 7
+    assert 'data-field="click"' not in text
+    first_track = text[text.index('data-field="ringing"'):]
+    order = [first_track.index(f'data-field="{field}"') for field in ("pitch", "content", "noise", "speaker")]
+    assert order == sorted(order)
+    axes = json.loads(mapping)["axes"]
+    assert list(axes) == ["ringing", "pitch", "content", "noise", "memo", "levelling", "speaker"]
+    assert axes["pitch"] == page_module.PITCH_AXIS and axes["noise"] == page_module.NOISE_AXIS
+    assert axes["pitch"]["question"] == "비정상적인 음높이 튐 · 뒤집힘 · 떨림이 있는가"
+    assert axes["noise"]["options"] == ["없음", "있음"]
+    assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "pitch", "noise")
+    # the memo points at pitch and voice problems, and the preamble does not reuse the noise label
+    assert axes["memo"] == page_module.PITCH_NOISE_MEMO
+    assert text.count(f'<label class="free">{page_module.PITCH_NOISE_MEMO}') == 3
+    assert "우연 변동을 합산하는 것이다" in text and "잡음을 합산하는 것이다" not in text
+
+
+def test_the_pitch_and_noise_axes_need_the_short_page_and_noise_replaces_click(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    for flag in ("--pitch-axis", "--noise-axis"):
+        with pytest.raises(SystemExit, match="short page"):
+            page_module.main(["--system", f"early={first}", "--rows", "2", flag, "--output", str(tmp_path / "round")])
+    with pytest.raises(SystemExit, match="replaces --click-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--noise-axis", "--click-axis",
+                          "--output", str(tmp_path / "round2")])

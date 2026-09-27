@@ -290,7 +290,8 @@ class _ToyGenerator(nn.Module):
 
 
 # The ten settings the comb remedy added to TrainingOptions, and so to the
-# public options block of every run identity.
+# public options block of every run identity, plus the discriminator update
+# order added after them.
 _NEW_OPTION_FIELDS = (
     "adversarial_gating",
     "warmup_adversarial_gating",
@@ -302,6 +303,7 @@ _NEW_OPTION_FIELDS = (
     "decoder_freeze_upsamplers",
     "posterior_init",
     "generator_ema_decay",
+    "discriminator_update_order",
 )
 
 _OPTIMIZER_SCHEMA = {"generator": {"class": "torch.optim.AdamW"}}
@@ -356,7 +358,8 @@ def _resume(path: Path, parts: tuple, identity: dict, **extra) -> tuple[int, int
 
 
 def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour() -> None:
-    """These ten values are part of every run's identity, and they must stay these.
+    """These eleven values (the ten comb-remedy settings and the discriminator update
+    order) are part of every run's identity, and they must stay these.
 
     Each one reproduces what runs did before it existed, so a default that moves
     changes what an unchanged command line trains, silently. Pinning them here
@@ -380,6 +383,7 @@ def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour()
     assert payload["decoder_freeze_upsamplers"] is False
     assert payload["posterior_init"] == "fresh"
     assert payload["generator_ema_decay"] == 0.0
+    assert payload["discriminator_update_order"] == "joint"
 
 
 def _identity_pair(tmp_path: Path) -> tuple[dict, dict]:

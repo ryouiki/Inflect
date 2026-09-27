@@ -38,9 +38,9 @@ import json
 import statistics
 from pathlib import Path
 
-KNOWN_AXES = ("quality", "defect", "language", "ringing")
+KNOWN_AXES = ("quality", "defect", "language", "ringing", "speaker", "clarity", "content", "click", "pitch", "noise")
 FORCED = ("most_natural", "most_blurred")
-ROW_TEXT = ("comment", "ring_detail", "ring_order")
+ROW_TEXT = ("comment", "ring_detail", "ring_order", "memo")
 
 
 def axis_names(axes: dict) -> tuple[str, ...]:
@@ -138,6 +138,20 @@ def main(argv: list[str] | None = None) -> int:
             if len(group) < 2:
                 continue
             scored = verdict.get("rows", {}).get(row, {}).get("tracks", {})
+            if "quality" not in asked:
+                # A page without a quality question (the short page) still shows
+                # its duplicate pair: every question it asked, one line each.
+                print()
+                print(f"catch row {row} · {name} appears as {sorted(group)}")
+                for axis in asked:
+                    values = {letter: scored.get(letter, {}).get(axis, "") for letter in sorted(group)}
+                    indexes = [option_index(axes, axis, value) for value in values.values() if value]
+                    indexes = [index for index in indexes if index is not None]
+                    steps = f" · 옵션 단차 {max(indexes) - min(indexes)}단" if len(indexes) > 1 else ""
+                    shown = ", ".join(f"{letter}: {value or '—'}" for letter, value in values.items())
+                    print(f"  {axis:9} {shown}{steps}")
+                print("  (바이트 동일 오디오 · 라운드 전체의 잡음 바닥도 변동의 상한도 아니다)")
+                continue
             readings = {
                 letter: scored.get(letter, {}).get("quality", "") for letter in sorted(group)
             }

@@ -110,6 +110,75 @@ RINGING_AXIS = {
     ],
 }
 RING_DETAIL = "링잉이 들린 트랙과 그 구간 (들리지 않았으면 '없음')"
+# Opt-in, and absent from every page built without --speaker-axis, so those
+# pages rebuild byte for byte. It asks about the target voice rather than about
+# "the recording", because the listener is not told which track that is.
+SPEAKER_AXIS = {
+    "label": "화자",
+    "question": "목표 화자의 목소리로 들리는가 (품질·링잉과 무관하게)",
+    "options": ["예", "아니오", "판단 어려움"],
+}
+# Opt-in in the same way (--clarity-axis). It asks how much of the given text
+# the listener could follow, so a change that trades ringing for swallowed or
+# missing words shows up as its own answer. 0 is the good end, as on the
+# defect axis.
+CLARITY_AXIS = {
+    "label": "명료성",
+    "question": "제시문 내용을 얼마나 알아들을 수 있는가",
+    "options": [
+        "0 · 전부 알아들을 수 있다",
+        "1 · 일부 낱말이 뭉개지거나 빠졌다",
+        "2 · 상당 부분을 알아듣기 어렵다",
+    ],
+}
+# The short page (--minimal-axes): three graded questions per track and one
+# optional memo per row. The ringing question drops its "also count it as a
+# defect" aside, because that page asks no defect question; a defect that is
+# not ringing goes in the memo. Every other page keeps RINGING_AXIS as it is.
+MINIMAL_RINGING_AXIS = {**RINGING_AXIS, "question": "금속성 울림이 있는가"}
+MEMO = "메모 (선택) — 화자 변화나 그 밖의 문제: 클릭·끊김·음소 누락 등"
+# The memo label of a page that asks the pitch or noise question: it points the listener at what the
+# note sends to the memo (where a pitch or voice problem is heard) instead of clicks.
+PITCH_NOISE_MEMO = "메모 (선택) — 음높이 · 발성 이상, 잡음, 화자 변화 등을 위치와 함께"
+# The shortest page (--short-axes), for the one listening check a quantitative
+# batch ends with: ringing and whether words went missing or mushy, per track,
+# and the same optional memo. No naturalness grade.
+CONTENT_AXIS = {
+    "label": "내용",
+    "question": "빠지거나 뭉개진 낱말이 있는가",
+    "options": ["없음", "있음"],
+}
+# Opt-in on the shortest page only (--short-axes --click-axis): a click or
+# crackle graded apart from the sustained metallic ringing, for a round that
+# asks whether one fault went down without the other coming back. Its kind
+# and where it is heard go in the memo, through --note.
+CLICK_AXIS = {
+    "label": "클릭 · 자글거림",
+    "question": "짧은 충격음이나 자글거리는 소리가 있는가",
+    "options": [
+        "0 · 없음",
+        "1 · 주의해 들으면 있다",
+        "2 · 뚜렷하다",
+        "3 · 말소리를 덮는다",
+    ],
+}
+# Opt-in on the shortest page only (--short-axes --pitch-axis): abnormal pitch
+# events asked apart from the ringing, because a track can lose its ringing and
+# still jump, break or wobble in pitch. Natural intonation is not graded, and
+# any other voice problem goes in the memo rather than widening this question.
+PITCH_AXIS = {
+    "label": "음높이",
+    "question": "비정상적인 음높이 튐 · 뒤집힘 · 떨림이 있는가",
+    "options": ["0 · 없음", "1 · 주의해 들으면 있다", "2 · 뚜렷하다"],
+}
+# Opt-in on the shortest page only (--short-axes --noise-axis): a yes/no in place
+# of the graded click question, for a page that only needs to know whether a
+# short noise is there. Its kind and where it is heard go in the memo.
+NOISE_AXIS = {
+    "label": "잡음",
+    "question": "클릭 · 끊김 · 자글거림 같은 짧은 잡음이 있는가",
+    "options": ["없음", "있음"],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -247,8 +316,43 @@ def assign_letters(names: list[str], seed_bytes: bytes, row: str) -> dict[str, s
     return {name: _LETTERS[index] for index, name in enumerate(order)}
 
 
-def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> str:
+def _optional_select(axis: dict, field: str, row_id: str, letter: str) -> str:
+    return f"""
+          <label>{html.escape(axis['question'])}
+            <select data-row="{html.escape(row_id)}" data-letter="{letter}" data-field="{field}">
+              <option value="">—</option>
+              {''.join(f'<option>{html.escape(option)}</option>' for option in axis['options'])}
+            </select>
+          </label>"""
+
+
+def _optional_selects(row_id: str, letter: str, speaker_axis: bool, clarity_axis: bool) -> str:
+    selects = ""
+    if speaker_axis:
+        selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
+    if clarity_axis:
+        selects += _optional_select(CLARITY_AXIS, "clarity", row_id, letter)
+    return selects
+
+
+def render_page(
+    page_key: str,
+    rows: list[dict],
+    axes: dict,
+    note: str = "",
+    speaker_axis: bool = False,
+    clarity_axis: bool = False,
+    minimal: bool = False,
+    short: bool = False,
+    click_axis: bool = False,
+    pitch_axis: bool = False,
+    noise_axis: bool = False,
+) -> str:
     """Return the standalone HTML page."""
+    if minimal or short:
+        return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis,
+                                    speaker=short and speaker_axis, pitch=short and pitch_axis,
+                                    noise=short and noise_axis)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -280,7 +384,7 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
               <option value="">—</option>
               {''.join(f'<option>{html.escape(option)}</option>' for option in RINGING_AXIS['options'])}
             </select>
-          </label>
+          </label>{_optional_selects(row["id"], letter, speaker_axis, clarity_axis)}
         </div>"""
             for letter in letters
         )
@@ -315,6 +419,86 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
       </section>"""
         )
 
+    return _page_shell(page_key, blocks, axes, note)
+
+
+def _minimal_selects(row_id: str, letter: str) -> str:
+    return _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter) + _optional_select(
+        CLARITY_AXIS, "clarity", row_id, letter
+    )
+
+
+def _short_track(
+    row_id: str, letter: str, click: bool = False, speaker: bool = False, pitch: bool = False,
+    noise: bool = False,
+) -> str:
+    selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
+    if pitch:
+        selects += _optional_select(PITCH_AXIS, "pitch", row_id, letter)
+    if click:
+        selects += _optional_select(CLICK_AXIS, "click", row_id, letter)
+    selects += _optional_select(CONTENT_AXIS, "content", row_id, letter)
+    if noise:
+        selects += _optional_select(NOISE_AXIS, "noise", row_id, letter)
+    if speaker:
+        # After the existing questions, so a page without it keeps their order and bytes.
+        selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
+    return f"""
+        <div class="track">
+          <div class="letter">{letter}</div>
+          <audio controls preload="none" src="tracks/{html.escape(row_id)}/{letter}.wav"></audio>{selects}
+        </div>"""
+
+
+def _render_minimal_page(
+    page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False,
+    speaker: bool = False, pitch: bool = False, noise: bool = False,
+) -> str:
+    blocks: list[str] = []
+    for row in rows:
+        letters = sorted(row["letters"])
+        row_id = html.escape(row["id"])
+        if short:
+            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise) for letter in letters)
+        else:
+            tracks = "".join(
+            f"""
+        <div class="track">
+          <div class="letter">{letter}</div>
+          <audio controls preload="none" src="tracks/{row_id}/{letter}.wav"></audio>
+          <label>{html.escape(QUALITY_AXIS['label'])}
+            <select data-row="{row_id}" data-letter="{letter}" data-field="quality">
+              <option value="">—</option>
+              {''.join(f'<option>{html.escape(option)}</option>' for option in QUALITY_AXIS['options'])}
+            </select>
+          </label>{_minimal_selects(row["id"], letter)}
+        </div>"""
+            for letter in letters
+        )
+        blocks.append(
+            f"""
+      <section class="row" id="row-{row_id}">
+        <h2>{row_id}</h2>
+        {f'<p class="text">{html.escape(row["text"])}</p>' if row.get("text") else ''}
+        <div class="tracks">{tracks}</div>
+        <label class="free">{html.escape(PITCH_NOISE_MEMO if pitch or noise else MEMO)}
+          <textarea data-row="{row_id}" data-field="memo" data-optional="1" rows="2"></textarea>
+        </label>
+      </section>"""
+        )
+    return _page_shell(page_key, blocks, axes, note, minimal=True, chance="우연 변동" if noise else "잡음")
+
+
+def _page_shell(
+    page_key: str, blocks: list[str], axes: dict, note: str, *, minimal: bool = False, chance: str = "잡음"
+) -> str:
+    # `chance` names what summing labels across rows adds up. A page with the noise question uses
+    # another word, so the preamble does not reuse that question's label in its statistical sense.
+    # The minimal page's memo is optional: it is neither marked nor counted as
+    # a blank. Both fragments are empty on every other page, so their bytes do
+    # not change.
+    optional = " && !element.dataset.optional" if minimal else ""
+    required_text = "메모는 선택이다." if minimal else "자유기술은 필수다."
     axes_json = json.dumps(axes, ensure_ascii=False)
     return f"""<!doctype html>
 <meta charset="utf-8">
@@ -339,10 +523,10 @@ def render_page(page_key: str, rows: list[dict], axes: dict, note: str = "") -> 
 </style>
 <h1>블라인드 청취 · {html.escape(page_key)}</h1>
 <p class="note">
- 라벨(A/B/C…)은 <b>행마다 다시 섞인다</b>. 라벨을 행 사이에서 합산하면 잡음을 합산하는 것이다 —
+ 라벨(A/B/C…)은 <b>행마다 다시 섞인다</b>. 라벨을 행 사이에서 합산하면 {chance}을 합산하는 것이다 —
  귀속은 <code>mapping.json</code>에만 있고, 채점이 끝나기 전에는 열지 않는다.
  모든 트랙은 같은 RMS로 순수 게인 정렬됐다. 절대 점수는 <b>라운드 사이에 비교하지 않는다</b>;
- 이 페이지 안의 대비만 읽는다. 자유기술은 필수다.
+ 이 페이지 안의 대비만 읽는다. {required_text}
  {html.escape(note) if note else ''}
 </p>
 {''.join(blocks)}
@@ -375,7 +559,7 @@ const persist = () => {{
 // A blank is marked as it happens rather than announced after the download.
 const mark = () => {{
   document.querySelectorAll("[data-field]").forEach(element => {{
-    element.classList.toggle("blank", !element.value);
+    element.classList.toggle("blank", !element.value{optional});
   }});
 }};
 // Held only in memory: a reload always re-arms, and so does any edit, so the
@@ -402,7 +586,7 @@ document.getElementById("save").addEventListener("click", () => {{
       }} else {{
         entry[field] = element.value;
       }}
-      if (!element.value) missing += 1;
+      if (!element.value{optional}) missing += 1;
     }});
     rows[id] = entry;
   }});
@@ -454,8 +638,64 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="One extra sentence for this round's listener. The fixed wording is never changed.",
     )
+    parser.add_argument(
+        "--speaker-axis",
+        action="store_true",
+        help="Add a per-track question on whether the voice is the target speaker's.",
+    )
+    parser.add_argument(
+        "--short-axes",
+        action="store_true",
+        help=(
+            "Ask only ringing and missing/mushy words per track, with one optional memo "
+            "per row: the listening check at the end of a quantitative batch."
+        ),
+    )
+    parser.add_argument(
+        "--click-axis",
+        action="store_true",
+        help="With --short-axes only: also grade clicks or crackle per track, apart from the ringing.",
+    )
+    parser.add_argument(
+        "--pitch-axis",
+        action="store_true",
+        help="With --short-axes only: also grade abnormal pitch jumps, breaks or wobble per track.",
+    )
+    parser.add_argument(
+        "--noise-axis",
+        action="store_true",
+        help="With --short-axes only: ask yes/no for a short noise per track, in place of --click-axis.",
+    )
+    parser.add_argument(
+        "--minimal-axes",
+        action="store_true",
+        help=(
+            "Ask only naturalness, ringing and clarity per track and one optional memo per "
+            "row; no defect, language, forced choice, ranking or required free text."
+        ),
+    )
+    parser.add_argument(
+        "--clarity-axis",
+        action="store_true",
+        help="Add a per-track question on how much of the given text can be followed.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.click_axis and not args.short_axes:
+        raise SystemExit("--click-axis belongs to the short page; use it with --short-axes.")
+    if (args.pitch_axis or args.noise_axis) and not args.short_axes:
+        raise SystemExit("--pitch-axis and --noise-axis belong to the short page; use them with --short-axes.")
+    if args.noise_axis and args.click_axis:
+        raise SystemExit("--noise-axis replaces --click-axis; use one of them.")
+    if args.short_axes and (args.minimal_axes or args.clarity_axis):
+        # --speaker-axis may join the short page (a speaker question for a page that compares
+        # different models); every other axis flag stays refused.
+        raise SystemExit("--short-axes fixes its own questions; do not combine it with other axis flags.")
+    if args.minimal_axes and (args.speaker_axis or args.clarity_axis):
+        raise SystemExit(
+            "--minimal-axes fixes its own questions (clarity included); speaker changes "
+            "go in its memo, so do not combine it with --speaker-axis or --clarity-axis."
+        )
 
     systems: dict[str, dict[str, Path]] = {}
     system_paths: dict[str, Path] = {}
@@ -574,8 +814,45 @@ def main(argv: list[str] | None = None) -> int:
             "scope": "one target for every track on the page",
         },
     }
+    if args.short_axes:
+        axes = {
+            "ringing": MINIMAL_RINGING_AXIS,
+            **({"pitch": PITCH_AXIS} if args.pitch_axis else {}),
+            **({"click": CLICK_AXIS} if args.click_axis else {}),
+            "content": CONTENT_AXIS,
+            **({"noise": NOISE_AXIS} if args.noise_axis else {}),
+            "memo": PITCH_NOISE_MEMO if args.pitch_axis or args.noise_axis else MEMO,
+            "levelling": axes["levelling"],
+        }
+    if args.minimal_axes:
+        axes = {
+            "quality": QUALITY_AXIS,
+            "ringing": MINIMAL_RINGING_AXIS,
+            "clarity": CLARITY_AXIS,
+            "memo": MEMO,
+            "levelling": axes["levelling"],
+        }
+    if args.speaker_axis:
+        # Only when asked for: a page without it must embed exactly the axes it
+        # always did.
+        axes["speaker"] = SPEAKER_AXIS
+    if args.clarity_axis:
+        axes["clarity"] = CLARITY_AXIS
     (output / "index.html").write_text(
-        render_page(page_key, page_rows, axes, args.note), encoding="utf-8"
+        render_page(
+            page_key,
+            page_rows,
+            axes,
+            args.note,
+            speaker_axis=args.speaker_axis,
+            clarity_axis=args.clarity_axis,
+            minimal=args.minimal_axes,
+            short=args.short_axes,
+            click_axis=args.click_axis,
+            pitch_axis=args.pitch_axis,
+            noise_axis=args.noise_axis,
+        ),
+        encoding="utf-8",
     )
     (output / "mapping.json").write_text(
         json.dumps(

@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import MISSING, asdict, dataclass, fields, replace
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import soundfile as sf
@@ -18,14 +18,19 @@ from torch import nn
 from torch.nn import functional as F
 
 from .checkpoint import (
+    BRANCH_PERMITTED_DIFFERENCES,
     CompatibilityReport,
     build_run_identity,
     cpu_compatibility_report,
     load_posterior_sidecar,
     load_run_identity,
+    load_training_checkpoint_header,
+    load_training_weights,
     resume_training_checkpoint,
     save_inference_checkpoint,
     save_training_checkpoint,
+    sha256_file,
+    validate_branch_identity,
     validate_run_identity,
     write_run_identity,
 )
@@ -51,8 +56,17 @@ STAGE_POSTERIOR = "posterior_warmup"
 STAGE_ADAPT = "linguistic_adaptation"
 STAGE_DECODER = "decoder_polish"
 STAGES = (STAGE_POSTERIOR, STAGE_ADAPT, STAGE_DECODER)
-DECODER_POLISH_MODES = ("adversarial", "recon")
+DECODER_POLISH_MODES = ("adversarial", "recon", "posterior_decoder", "posterior_decoder_recon")
+#: Polish modes that train without the discriminator: no adversarial or
+#: feature-matching term, and no discriminator update.
+RECONSTRUCTION_ONLY_MODES = ("recon", "posterior_decoder_recon")
 POSTERIOR_INITS = ("fresh", "inherit")
+#: When the discriminator steps. "joint": after the generator's backward pass,
+#: with the generator's adversarial terms scored by the discriminator as it was
+#: before this step (the order every earlier run used). "first": before the
+#: generator's adversarial terms are computed, so they are scored by the
+#: discriminator this step just updated (the order of the VITS reference loop).
+DISCRIMINATOR_UPDATE_ORDERS = ("joint", "first")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
 # model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
@@ -75,6 +89,14 @@ class TrainingOptions:
     output_dir: str | Path
     preset: str | Path | None = None
     resume: str | Path | None = None
+    # A training checkpoint from *another* run to continue in a new output
+    # directory, carrying its full state. See `_establish_branch_identity`.
+    branch_from: str | Path | None = None
+    # A training checkpoint whose generator and discriminator *weights* start a
+    # new run. Nothing else is taken from it -- no optimizer, scheduler, scaler,
+    # step or RNG state -- so this is a new recipe that begins where another
+    # run's weights ended, not a continuation. See `_init_block`.
+    init_from: str | Path | None = None
     device: str = "auto"
     seed: int = 1234
     batch_size: int = 2
@@ -117,6 +139,7 @@ class TrainingOptions:
     decoder_freeze_upsamplers: bool = False
     posterior_init: str = "fresh"
     generator_ema_decay: float = 0.0
+    discriminator_update_order: str = "joint"
 
     @classmethod
     def from_preset(
@@ -189,6 +212,22 @@ def load_preset(preset: str | Path) -> dict[str, Any]:
 
 
 def _validate_options(options: TrainingOptions) -> None:
+    if options.resume is not None and options.branch_from is not None:
+        raise ValueError(
+            "resume continues this run and branch_from starts a new one from another run's "
+            "checkpoint; pass one of them, not both."
+        )
+    if options.init_from is not None and options.branch_from is not None:
+        raise ValueError(
+            "branch_from continues another run with its whole state and init_from starts a "
+            "new recipe from its weights alone; pass one of them, not both."
+        )
+    if options.init_from is not None and options.posterior_init == "inherit":
+        raise ValueError(
+            "init_from replaces the posterior with the checkpoint's own, so a posterior "
+            "sidecar would be pinned in the identity and then overwritten; use "
+            "posterior_init='fresh'."
+        )
     positive_ints = (
         "batch_size",
         "gradient_accumulation_steps",
@@ -229,6 +268,17 @@ def _validate_options(options: TrainingOptions) -> None:
         )
     if options.posterior_init not in POSTERIOR_INITS:
         raise ValueError(f"posterior_init must be one of {list(POSTERIOR_INITS)}.")
+    if options.discriminator_update_order not in DISCRIMINATOR_UPDATE_ORDERS:
+        raise ValueError(
+            f"discriminator_update_order must be one of {list(DISCRIMINATOR_UPDATE_ORDERS)}."
+        )
+    if options.discriminator_update_order == "first" and options.gradient_accumulation_steps != 1:
+        # Stepping the discriminator before the generator's terms means stepping
+        # it on every micro-batch, which is no longer accumulation.
+        raise ValueError(
+            "discriminator_update_order='first' steps the discriminator on every batch; "
+            "use gradient_accumulation_steps=1."
+        )
     if not 0.0 <= float(options.generator_ema_decay) < 1.0:
         raise ValueError("generator_ema_decay must be at least 0 and below 1.")
     if options.decoder_unfreeze_step is None:
@@ -326,6 +376,14 @@ def _enabled_groups(options: TrainingOptions, stage: str) -> set[str]:
         # flow keep moving would change those latents at the same time and
         # answer nothing.
         return {"decoder"}
+    if stage == STAGE_DECODER and options.decoder_polish_mode in (
+        "posterior_decoder",
+        "posterior_decoder_recon",
+    ):
+        # The acoustic path alone: real audio through the posterior into the
+        # decoder, trained together, with the text side held where it is. The
+        # two modes differ only in whether the discriminator takes part.
+        return {"posterior", "decoder"}
     return {
         STAGE_POSTERIOR: {"posterior"},
         STAGE_ADAPT: {"posterior", "linguistic"},
@@ -388,7 +446,7 @@ def _adversarial_weight(options: TrainingOptions, step: int, stage: str) -> floa
     trains under its own rule in both windows.
     """
 
-    if stage == STAGE_DECODER and options.decoder_polish_mode == "recon":
+    if stage == STAGE_DECODER and options.decoder_polish_mode in RECONSTRUCTION_ONLY_MODES:
         return 0.0
     if options.warmup_adversarial_gating and stage == STAGE_POSTERIOR:
         return 0.0
@@ -421,7 +479,7 @@ def _decoder_lr_scale(options: TrainingOptions, step: int, stage: str) -> float:
 
 
 def _discriminator_active(options: TrainingOptions, stage: str) -> bool:
-    return not (stage == STAGE_DECODER and options.decoder_polish_mode == "recon")
+    return not (stage == STAGE_DECODER and options.decoder_polish_mode in RECONSTRUCTION_ONLY_MODES)
 
 
 @contextmanager
@@ -787,7 +845,15 @@ def _grad_scaler(enabled: bool):
 
 def _public_options(options: TrainingOptions) -> dict[str, Any]:
     payload = asdict(options)
-    for key in ("base_model", "prepared_dir", "output_dir", "preset", "resume"):
+    for key in (
+        "base_model",
+        "prepared_dir",
+        "output_dir",
+        "preset",
+        "resume",
+        "branch_from",
+        "init_from",
+    ):
         payload.pop(key, None)
     return json.loads(json.dumps(payload, sort_keys=True))
 
@@ -901,6 +967,7 @@ def _establish_run_identity(
     base_root: Path,
     prepared_dir: Path,
     posterior_path: Path | None = None,
+    init_block: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Path | None]:
     marker_path = output_dir / "run-identity.json"
     public_options = _public_options(options)
@@ -916,6 +983,8 @@ def _establish_run_identity(
             optimizer_schema=optimizer_schema,
             posterior_path=posterior_path,
         )
+        if init_block is not None:
+            identity["init"] = init_block
         write_run_identity(marker_path, identity)
         return identity, None
 
@@ -933,8 +1002,360 @@ def _establish_run_identity(
         optimizer_schema=optimizer_schema,
         posterior_path=posterior_path,
     )
+    # A run that began as a branch records where it came from, and that record
+    # is part of its identity. Rebuilding from options alone cannot recreate it,
+    # so it is carried over from the marker -- without this, a branch that was
+    # interrupted could never be resumed.
+    if "branch" in recorded:
+        expected["branch"] = recorded["branch"]
+    # The weights a run started from are rebuilt from the same checkpoint on
+    # every resume, so swapping that file between sessions is refused like
+    # swapping the base.
+    if init_block is not None:
+        expected["init"] = init_block
+    elif "branch" in recorded and "init" in recorded:
+        # A branch of an init run carries its parent's `init` without having an
+        # init_from of its own; like `branch`, it comes from the marker.
+        expected["init"] = recorded["init"]
     validate_run_identity(recorded, expected, source="output directory run marker")
     return expected, checkpoint
+
+
+#: What a branch takes from its parent checkpoint, by payload key. The one thing
+#: it cannot take is the order of the data: the loader's shuffle generator is
+#: rebuilt from `seed` in every process and is not part of any checkpoint.
+BRANCH_INHERITED_STATE = (
+    "generator",
+    "discriminator",
+    "optimizer_g",
+    "optimizer_d",
+    "scheduler_g",
+    "scheduler_d",
+    "scaler",
+    "rng_state",
+    "step",
+    "epoch",
+    "stage",
+)
+BRANCH_NOT_INHERITED = ("dataloader shuffle order",)
+
+
+def _establish_branch_identity(
+    *,
+    options: TrainingOptions,
+    output_dir: Path,
+    base_root: Path,
+    prepared_dir: Path,
+    posterior_path: Path | None = None,
+) -> tuple[dict[str, Any], Path, dict[str, Any], dict[str, Any]]:
+    """Start a new run that continues another run's training checkpoint.
+
+    `--resume` is bound to its own run twice over: the checkpoint has to sit in
+    this run's checkpoints directory, and the identity has to match exactly, so
+    raising `max_steps` makes a finished run unresumable. Chaining through an
+    export instead throws away the discriminator, both optimizers, both
+    schedulers, the scaler and the step, and replays the whole stage schedule.
+
+    A branch keeps all of that and lives in a new directory. Its identity is
+    built as any new run's is and then compared with the parent's field by
+    field: only `BRANCH_PERMITTED_DIFFERENCES` may differ, and anything else is
+    named and refused. Nothing is created on disk until every check has passed.
+
+    Returns the branch's identity, the parent checkpoint, the parent's own
+    identity (which the checkpoint payload is then verified against, strictly)
+    and the parent header.
+    """
+
+    parent = Path(options.branch_from).resolve()
+    if not parent.is_file():
+        raise FileNotFoundError(f"Branch parent checkpoint does not exist: {parent}")
+    header = load_training_checkpoint_header(parent)
+    if int(options.max_steps) <= header["step"]:
+        raise ValueError(
+            f"A branch has to go past its parent: max_steps {options.max_steps} is not "
+            f"beyond the parent's step {header['step']}."
+        )
+    _validate_new_output_dir(output_dir)
+    identity = build_run_identity(
+        run_id=uuid.uuid4().hex,
+        base_root=base_root,
+        prepared_dir=prepared_dir,
+        options=_public_options(options),
+        optimizer_schema=_optimizer_schema(options),
+        posterior_path=posterior_path,
+    )
+    # A parent that was itself started from another run's weights records that
+    # under `init`. The branch continues the same weights, so the lineage comes
+    # with it; rebuilding from options alone would drop it and the field
+    # comparison would refuse the branch.
+    if "init" in header["run_identity"]:
+        identity["init"] = header["run_identity"]["init"]
+    differences = validate_branch_identity(header["run_identity"], identity)
+    parent_run_dir = parent.parent.parent
+    identity["branch"] = {
+        "parent_run_id": str(header["run_identity"].get("run_id", "")),
+        "parent_run": parent_run_dir.name,
+        "parent_checkpoint": parent.name,
+        "parent_checkpoint_sha256": sha256_file(parent),
+        "parent_step": header["step"],
+        "parent_epoch": header["epoch"],
+        "parent_stage": header["stage"],
+        "inherited": list(BRANCH_INHERITED_STATE),
+        "not_inherited": list(BRANCH_NOT_INHERITED),
+        "permitted_differences": list(BRANCH_PERMITTED_DIFFERENCES),
+        "differences": differences,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_run_identity(output_dir / "run-identity.json", identity)
+    return identity, parent, dict(header["run_identity"]), header
+
+
+def _same_tensors(live: Mapping[str, Any], saved: Mapping[str, Any]) -> dict[str, Any]:
+    keys = sorted(set(live) | set(saved), key=str)
+    unequal = [
+        str(key)
+        for key in keys
+        if key not in live
+        or key not in saved
+        or not torch.equal(torch.as_tensor(live[key]).cpu(), torch.as_tensor(saved[key]).cpu())
+    ]
+    return {"ok": not unequal, "compared": len(keys), "unequal": unequal[:8]}
+
+
+def _same_optimizer_moments(live: Mapping[str, Any], saved: Mapping[str, Any]) -> dict[str, Any]:
+    unequal: list[str] = []
+    compared = 0
+    for index in sorted(set(live) | set(saved)):
+        if index not in live or index not in saved:
+            unequal.append(f"{index}: present on one side only")
+            continue
+        for field in sorted(set(live[index]) | set(saved[index])):
+            compared += 1
+            left, right = live[index].get(field), saved[index].get(field)
+            if left is None or right is None or not torch.equal(
+                torch.as_tensor(left).cpu(), torch.as_tensor(right).cpu()
+            ):
+                unequal.append(f"{index}.{field}")
+    return {"ok": not unequal, "compared": compared, "unequal": unequal[:8]}
+
+
+#: What a run started with `init_from` takes from that checkpoint, by payload
+#: key, and what it leaves behind. The optimizer starts empty and the step at 0.
+INIT_INHERITED_STATE = ("generator", "discriminator")
+INIT_NOT_INHERITED = (
+    "optimizer_g",
+    "optimizer_d",
+    "scheduler_g",
+    "scheduler_d",
+    "scaler",
+    "rng_state",
+    "step",
+    "epoch",
+    "stage",
+)
+
+
+def _load_init_weights(
+    options: TrainingOptions, symbols: Sequence[str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read the `init_from` weights and the identity block that names them."""
+
+    path = Path(options.init_from).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"init_from checkpoint does not exist: {path}")
+    payload = load_training_weights(path)
+    if payload["symbols"] != list(symbols):
+        raise ValueError(
+            "init_from checkpoint was trained with a different symbol inventory than "
+            "this dataset."
+        )
+    block = {
+        "checkpoint_sha256": sha256_file(path),
+        "parent_run_id": str(payload["run_identity"].get("run_id", "")),
+        "parent_step": payload["step"],
+        "parent_stage": payload["stage"],
+        "inherited": list(INIT_INHERITED_STATE),
+        "not_inherited": list(INIT_NOT_INHERITED),
+    }
+    return block, payload
+
+
+def _init_check(
+    *,
+    generator: nn.Module,
+    discriminator: nn.Module,
+    payload: Mapping[str, Any],
+    optimizer_g: torch.optim.Optimizer,
+    options: TrainingOptions,
+    stage: str,
+) -> dict[str, Any]:
+    """Compare the state before the first update with what `init_from` promised.
+
+    The weights must be the checkpoint's bit for bit, the optimizer must be
+    empty, and the parameter groups that can move must be exactly the ones the
+    stage enables -- a clean load says nothing about which of them will train.
+    """
+
+    items: dict[str, dict[str, Any]] = {
+        "generator": _same_tensors(generator.state_dict(), payload["generator"]),
+        "discriminator": _same_tensors(discriminator.state_dict(), payload["discriminator"]),
+    }
+    expected = sorted(_enabled_groups(options, stage))
+    trainable = sorted(
+        group["name"]
+        for group in optimizer_g.param_groups
+        if any(parameter.requires_grad for parameter in group["params"])
+    )
+    items["active_groups"] = {
+        "ok": trainable == expected,
+        "expected": expected,
+        "trainable": trainable,
+        "stage": stage,
+    }
+    items["optimizer"] = {"ok": len(optimizer_g.state) == 0, "entries": len(optimizer_g.state)}
+    items["adversarial"] = {
+        # Recorded, not judged: which losses apply is the preset's choice.
+        "ok": True,
+        "weight_at_step_0": _adversarial_weight(options, 0, stage),
+        "discriminator_active": _discriminator_active(options, stage),
+    }
+    return {"passed": all(item["ok"] for item in items.values()), "items": items}
+
+
+def _branch_continuity_check(
+    parent: Path,
+    *,
+    options: TrainingOptions,
+    state: TrainingState,
+    generator: nn.Module,
+    discriminator: nn.Module,
+    optimizer_g: torch.optim.Optimizer,
+    optimizer_d: torch.optim.Optimizer,
+    scheduler_g: Any,
+    scheduler_d: Any,
+    scaler: Any,
+    boundary_reset: bool,
+) -> dict[str, Any]:
+    """Compare the live state with the parent checkpoint before the first update.
+
+    Loading a checkpoint and then assuming it landed is how a continuation goes
+    wrong without anyone noticing -- a strict-free load, a scheduler that
+    restarts, a scaler at its default scale. So every piece the branch claims
+    to inherit is compared with the file it came from, and the result is
+    written next to the run whether or not it passes.
+
+    The learning rates are compared with the parent's decayed values, except
+    when the branch point is itself a stage boundary: an uninterrupted run
+    resets the rates to nominal there, and so does a resume, so that is the
+    value to expect.
+    """
+
+    payload = torch.load(parent, map_location="cpu", weights_only=False)
+    items: dict[str, dict[str, Any]] = {}
+
+    items["position"] = {
+        "ok": (state.step, state.epoch) == (int(payload["step"]), int(payload["epoch"]))
+        and state.stage in {payload["stage"], _stage_for_step(options, state.step)},
+        "live": {"step": state.step, "epoch": state.epoch, "stage": state.stage},
+        "parent": {"step": payload["step"], "epoch": payload["epoch"], "stage": payload["stage"]},
+    }
+    items["generator"] = _same_tensors(generator.state_dict(), payload["generator"])
+    items["discriminator"] = _same_tensors(discriminator.state_dict(), payload["discriminator"])
+
+    saved_groups = payload["optimizer_g"]["param_groups"]
+    group_rows = []
+    groups_ok = len(saved_groups) == len(optimizer_g.param_groups)
+    for live_group, saved_group in zip(optimizer_g.param_groups, saved_groups):
+        expected_lr = (
+            options.learning_rate_g * saved_group["lr_multiplier"]
+            if boundary_reset and saved_group["lr"] != 0.0
+            else saved_group["lr"]
+        )
+        same = (
+            live_group.get("name") == saved_group.get("name")
+            and live_group.get("lr_multiplier") == saved_group.get("lr_multiplier")
+            and live_group["lr"] == expected_lr
+        )
+        groups_ok = groups_ok and same
+        group_rows.append(
+            {
+                "name": live_group.get("name"),
+                "lr_multiplier": live_group.get("lr_multiplier"),
+                "lr": live_group["lr"],
+                "expected_lr": expected_lr,
+            }
+        )
+    items["optimizer_g_groups"] = {"ok": groups_ok, "groups": group_rows}
+    items["optimizer_g_moments"] = _same_optimizer_moments(
+        optimizer_g.state_dict()["state"], payload["optimizer_g"]["state"]
+    )
+    d_rates = [group["lr"] for group in optimizer_d.param_groups]
+    saved_d_rates = [group["lr"] for group in payload["optimizer_d"]["param_groups"]]
+    items["optimizer_d"] = {
+        "ok": d_rates == saved_d_rates
+        and _same_optimizer_moments(
+            optimizer_d.state_dict()["state"], payload["optimizer_d"]["state"]
+        )["ok"],
+        "lr": d_rates,
+        "parent_lr": saved_d_rates,
+    }
+    for name, scheduler in (("scheduler_g", scheduler_g), ("scheduler_d", scheduler_d)):
+        live = scheduler.state_dict()
+        saved = payload[name]
+        fields = ("last_epoch", "_step_count", "gamma")
+        items[name] = {
+            "ok": all(live.get(field) == saved.get(field) for field in fields),
+            "live": {field: live.get(field) for field in fields},
+            "parent": {field: saved.get(field) for field in fields},
+        }
+    live_scaler = scaler.state_dict()
+    items["scaler"] = {
+        "ok": live_scaler == payload["scaler"],
+        "live": live_scaler,
+        "parent": payload["scaler"],
+    }
+    saved_rng = payload.get("rng_state", {})
+    rng_checks = {
+        "torch": torch.equal(torch.random.get_rng_state(), saved_rng.get("torch", torch.empty(0))),
+        "numpy": _same_numpy_state(np.random.get_state(), saved_rng.get("numpy")),
+        "python": random.getstate() == saved_rng.get("python"),
+    }
+    if "cuda" in saved_rng and torch.cuda.is_available():
+        live_cuda = torch.cuda.get_rng_state_all()
+        rng_checks["cuda"] = len(live_cuda) == len(saved_rng["cuda"]) and all(
+            torch.equal(a, b) for a, b in zip(live_cuda, saved_rng["cuda"])
+        )
+    items["rng_state"] = {"ok": all(rng_checks.values()), "compared": rng_checks}
+
+    boundaries = [
+        step
+        for step in (options.posterior_warmup_steps, options.decoder_unfreeze_step)
+        if step is not None and state.step < step <= options.max_steps
+    ]
+    # Recorded, never failed: crossing a boundary later in the branch is what an
+    # uninterrupted run would do too. The record states it so a reader knows
+    # whether the rates stay on one decay curve for the whole continuation.
+    items["stage_schedule"] = {
+        "ok": True,
+        "branch_point_is_boundary": boundary_reset,
+        "boundaries_ahead": boundaries,
+    }
+    del payload
+    return {
+        "format": "inflect_branch_continuity_check_v1",
+        "parent": parent.name,
+        "passed": all(item["ok"] for item in items.values()),
+        "items": items,
+    }
+
+
+def _same_numpy_state(live: Any, saved: Any) -> bool:
+    if saved is None or len(live) != len(saved):
+        return False
+    return all(
+        np.array_equal(a, b) if isinstance(a, np.ndarray) else a == b
+        for a, b in zip(live, saved)
+    )
 
 
 @torch.inference_mode()
@@ -997,13 +1418,32 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
     symbols = load_symbols(prepared_dir / "symbols.json")
     base_root = resolve_base_model(options.base_model)
     posterior_path = _posterior_sidecar_path(options, base_root)
-    run_identity, resume_checkpoint = _establish_run_identity(
-        options=options,
-        output_dir=output_dir,
-        base_root=base_root,
-        prepared_dir=prepared_dir,
-        posterior_path=posterior_path,
-    )
+    branch_header: dict[str, Any] | None = None
+    init_block: dict[str, Any] | None = None
+    init_payload: dict[str, Any] | None = None
+    if options.init_from is not None:
+        init_block, init_payload = _load_init_weights(options, symbols)
+    if options.branch_from is not None:
+        run_identity, resume_checkpoint, checkpoint_identity, branch_header = (
+            _establish_branch_identity(
+                options=options,
+                output_dir=output_dir,
+                base_root=base_root,
+                prepared_dir=prepared_dir,
+                posterior_path=posterior_path,
+            )
+        )
+    else:
+        run_identity, resume_checkpoint = _establish_run_identity(
+            options=options,
+            output_dir=output_dir,
+            base_root=base_root,
+            prepared_dir=prepared_dir,
+            posterior_path=posterior_path,
+            init_block=init_block,
+        )
+        # A resume's checkpoint carries this run's own identity.
+        checkpoint_identity = run_identity
 
     bundle = build_training_models(base_root, symbols, seed=options.seed)
     posterior_state = (
@@ -1018,6 +1458,14 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         posterior_state=posterior_state,
     )
     compatibility.write(output_dir / "compatibility-report.json")
+    if init_payload is not None:
+        if resume_checkpoint is None:
+            # Before the anchor and EMA snapshots, so both start from these
+            # weights. A resume loads its own over them, so it skips this.
+            bundle.generator.load_state_dict(init_payload["generator"], strict=True)
+            bundle.discriminator.load_state_dict(init_payload["discriminator"], strict=True)
+        else:
+            init_payload = None
     bundle.generator.to(device)
     bundle.discriminator.to(device)
     # Both snapshots are taken from the warm-started base and before any resume
@@ -1065,7 +1513,9 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             scheduler_d=scheduler_d,
             scaler=scaler,
             expected_symbols=symbols,
-            expected_run_identity=run_identity,
+            # For a branch this is the parent's identity: the payload is still
+            # checked strictly, just against the run that wrote it.
+            expected_run_identity=checkpoint_identity,
             generator_ema=generator_ema,
         )
         expected_stage = _stage_for_step(options, step)
@@ -1095,6 +1545,54 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             state.stage,
             reset_learning_rates=expected_stage != previous_stage,
         )
+        if branch_header is not None:
+            # Before the first update, show the continuation starts exactly where
+            # the parent stopped. Nothing between the load above and this point
+            # consumes randomness, so even the RNG states can be compared.
+            check = _branch_continuity_check(
+                resume_checkpoint,
+                options=options,
+                state=state,
+                generator=bundle.generator,
+                discriminator=bundle.discriminator,
+                optimizer_g=optimizer_g,
+                optimizer_d=optimizer_d,
+                scheduler_g=scheduler_g,
+                scheduler_d=scheduler_d,
+                scaler=scaler,
+                boundary_reset=expected_stage != previous_stage,
+            )
+            (output_dir / "branch-check.json").write_text(
+                json.dumps(check, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            if not check["passed"]:
+                failed = sorted(name for name, item in check["items"].items() if not item["ok"])
+                raise RuntimeError(
+                    "The branch does not continue its parent exactly; stopping before the "
+                    f"first update. Failed: {failed}. See {output_dir / 'branch-check.json'}."
+                )
+
+    if init_payload is not None:
+        check = _init_check(
+            generator=bundle.generator,
+            discriminator=bundle.discriminator,
+            payload=init_payload,
+            optimizer_g=optimizer_g,
+            options=options,
+            stage=state.stage,
+        )
+        init_payload = None
+        (output_dir / "init-check.json").write_text(
+            json.dumps(check, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if not check["passed"]:
+            failed = sorted(name for name, item in check["items"].items() if not item["ok"])
+            raise RuntimeError(
+                "The run does not start from the init_from weights as declared; stopping "
+                f"before the first update. Failed: {failed}. See {output_dir / 'init-check.json'}."
+            )
 
     audio = AudioConfig(
         sampling_rate=int(bundle.config["data"]["sampling_rate"]),
@@ -1168,8 +1666,19 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     )
                     loss_d = _discriminator_loss(real_scores, generated_scores)
 
+            discriminator_first = options.discriminator_update_order == "first"
             if loss_d is not None:
                 scaler.scale(loss_d / options.gradient_accumulation_steps).backward()
+                if discriminator_first:
+                    # Validation holds accumulation at 1 here, so this is the
+                    # step's only discriminator update. The one scaler.update()
+                    # below still covers both optimizers.
+                    scaler.unscale_(optimizer_d)
+                    torch.nn.utils.clip_grad_norm_(
+                        bundle.discriminator.parameters(), options.max_grad_norm
+                    )
+                    scaler.step(optimizer_d)
+                    optimizer_d.zero_grad(set_to_none=True)
 
             _set_requires_grad(bundle.discriminator, False)
             with _autocast(device, amp_enabled):
@@ -1218,7 +1727,10 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             if micro_step % options.gradient_accumulation_steps:
                 continue
             scaler.unscale_(optimizer_g)
-            if train_discriminator:
+            # Under "first" the discriminator already stepped before the
+            # generator's terms; only the joint order steps it here.
+            step_discriminator_here = train_discriminator and not discriminator_first
+            if step_discriminator_here:
                 scaler.unscale_(optimizer_d)
             torch.nn.utils.clip_grad_norm_(
                 [
@@ -1229,13 +1741,14 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                 ],
                 options.max_grad_norm,
             )
-            if train_discriminator:
+            if step_discriminator_here:
                 torch.nn.utils.clip_grad_norm_(
                     bundle.discriminator.parameters(), options.max_grad_norm
                 )
-                # Stepping an optimizer the scaler recorded no inf check for is
-                # a hard error, so this has to follow the same condition as the
-                # backward pass above rather than being merely wasteful.
+                # Only when the discriminator had a backward pass this step and
+                # was not already stepped before the generator's terms: stepping
+                # an optimizer the scaler recorded no inf check for, or stepping
+                # it twice before update(), is a hard error.
                 scaler.step(optimizer_d)
             decoder_lr_scale = _decoder_lr_scale(options, state.step, state.stage)
             with _scaled_decoder_lr(optimizer_g, decoder_lr_scale):
@@ -1244,7 +1757,11 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             optimizer_g.zero_grad(set_to_none=True)
             optimizer_d.zero_grad(set_to_none=True)
             scheduler_g.step()
-            scheduler_d.step()
+            if train_discriminator or options.decoder_polish_mode != "posterior_decoder_recon":
+                # A discriminator that is never stepped keeps its schedule too.
+                # Only the new mode does this: the older `recon` mode's saved
+                # runs advanced it, and changing that would break their resume.
+                scheduler_d.step()
             state.step += 1
             if generator_ema is not None:
                 _ema_update(
