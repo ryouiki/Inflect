@@ -679,6 +679,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Add a per-track question on how much of the given text can be followed.",
     )
+    parser.add_argument(
+        "--row-letters",
+        type=Path,
+        help=(
+            "JSON {row: {track: letter}} fixing the letters of the rows it names, for a "
+            "round whose rule keeps re-heard tracks off their earlier letters. Each named "
+            "row must list every track on it (a duplicate is NAME#catch) with the first N "
+            "letters. Rows it does not name keep the random letters."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.click_axis and not args.short_axes:
@@ -760,6 +770,19 @@ def main(argv: list[str] | None = None) -> int:
             names.append(f"{duplicate}#catch")
         row_names[row] = names
 
+    fixed_letters: dict[str, dict[str, str]] = {}
+    if args.row_letters:
+        fixed_letters = json.loads(args.row_letters.read_text(encoding="utf-8"))
+        for row, given in fixed_letters.items():
+            if row not in row_names:
+                raise SystemExit(f"--row-letters names row {row!r}, which is not on the page")
+            expected = list(_LETTERS[: len(row_names[row])])
+            if set(given) != set(row_names[row]) or sorted(given.values()) != expected:
+                raise SystemExit(
+                    f"--row-letters row {row!r} must give each of {sorted(row_names[row])} "
+                    f"one of the letters {''.join(expected)}"
+                )
+
     crests = {
         f"{row}/{name}": crest_factor_db(systems[name.split("#", 1)[0]][row])
         for row, names in row_names.items()
@@ -779,7 +802,11 @@ def main(argv: list[str] | None = None) -> int:
     page_rows: list[dict] = []
     row_widths: set[int] = set()
     for row, names in row_names.items():
-        letters = assign_letters(names, seed_bytes, row)
+        letters = (
+            dict(sorted(fixed_letters[row].items(), key=lambda item: item[1]))
+            if row in fixed_letters
+            else assign_letters(names, seed_bytes, row)
+        )
         destination = output / "tracks" / row
         destination.mkdir(parents=True, exist_ok=True)
         for name, letter in letters.items():
@@ -877,6 +904,8 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 "axes": axes,
                 "rows": mapping,
+                # Only when --row-letters was given, so a default mapping is unchanged.
+                **({"fixed_letter_rows": sorted(fixed_letters)} if fixed_letters else {}),
             },
             ensure_ascii=False,
             indent=1,

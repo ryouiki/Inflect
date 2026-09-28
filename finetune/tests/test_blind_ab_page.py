@@ -180,6 +180,44 @@ def test_the_catch_track_can_be_pinned_to_a_named_system(page_module, tmp_path):
         )
 
 
+def test_row_letters_fix_the_named_rows_and_leave_the_rest_random(page_module, tmp_path):
+    """A round that chose its letters by rule gets exactly those letters, catch track included."""
+    root = tmp_path / "sources"
+    for name in ("early", "late"):
+        for identifier in ("0001", "0002"):
+            write_wav(root / name / "audio" / f"{identifier}.wav", 0.1 if name == "early" else 0.3)
+    base = [
+        "--system", f"early={root / 'early'}",
+        "--system", f"late={root / 'late'}",
+        "--must-include-ids", str(tmp_path / "ids.txt"),
+        "--rows", "2", "--catch-rows", "1", "--catch-system", "late",
+    ]
+    (tmp_path / "ids.txt").write_text("0001\n0002\n", encoding="utf-8")
+    fixed = {"0001": {"late#catch": "A", "early": "B", "late": "C"}}
+    (tmp_path / "letters.json").write_text(json.dumps(fixed), encoding="utf-8")
+    output = tmp_path / "page"
+    assert page_module.main([*base, "--row-letters", str(tmp_path / "letters.json"), "--output", str(output)]) == 0
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert mapping["rows"]["0001"] == {"A": "late#catch", "B": "early", "C": "late"}
+    assert sorted(mapping["rows"]["0002"].values()) == ["early", "late"]
+    assert mapping["fixed_letter_rows"] == ["0001"]
+    assert (output / "tracks" / "0001" / "A.wav").read_bytes() == (output / "tracks" / "0001" / "C.wav").read_bytes()
+
+    for bad in (
+        {"0001": {"early": "A", "late": "B"}},  # the catch track is missing
+        {"0001": {"late#catch": "A", "early": "B", "late": "D"}},  # not the first three letters
+        {"0003": {"early": "A", "late": "B"}},  # not a row on the page
+    ):
+        (tmp_path / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+        target = tmp_path / f"bad-{len(list(tmp_path.glob('bad-*')))}"
+        with pytest.raises(SystemExit, match="--row-letters"):
+            page_module.main([*base, "--row-letters", str(tmp_path / "bad.json"), "--output", str(target)])
+
+    plain = tmp_path / "plain"
+    assert page_module.main([*base, "--output", str(plain)]) == 0
+    assert "fixed_letter_rows" not in json.loads((plain / "mapping.json").read_text(encoding="utf-8"))
+
+
 def test_a_round_note_reaches_the_listener_without_touching_the_fixed_wording(page_module, tmp_path):
     """A round can ask one extra thing; the scale wording stays byte-identical."""
     root = tmp_path / "sources"
