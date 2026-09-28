@@ -960,8 +960,9 @@ def instrumented_events(
     """Run the loop and record, in order, what each update and each discriminator call saw.
 
     ("d_call", weights) for every call of the discriminator, with a copy of all
-    its parameters at that moment; ("unscale" | "clip" | "step", "d" | "g") for
-    every scaler.unscale_, gradient clip and scaler.step; ("update",) for every
+    its parameters at that moment; ("unscale" | "step", "d" | "g") for every
+    scaler.unscale_ and scaler.step; ("clip", "d" | "g", pre-clip norm) for every
+    gradient clip; ("update",) for every
     scaler.update. The generator's optimizer is the one whose parameter groups
     are named. The stub runs without AMP, where unscale_ does nothing, so its
     calls are recorded rather than trusted to fail.
@@ -1011,8 +1012,11 @@ def instrumented_events(
 
     def counted_clip(parameters, *args, **kwargs):
         parameters = list(parameters)
-        events.append(("clip", "d" if id(parameters[0]) in discriminator_ids else "g"))
-        return real_clip(parameters, *args, **kwargs)
+        kind = "d" if id(parameters[0]) in discriminator_ids else "g"
+        norm = real_clip(parameters, *args, **kwargs)
+        # The returned pre-clip norm rides along as a third field; shape() keeps two.
+        events.append(("clip", kind, float(norm)))
+        return norm
 
     monkeypatch.setattr(training_module, "build_training_models", build)
     monkeypatch.setattr(training_module, "_grad_scaler", scaler_factory)
@@ -1127,3 +1131,59 @@ def test_the_update_order_is_inert_when_the_discriminator_does_not_train(
     assert (tmp_path / "first" / "metrics.jsonl").read_bytes() == (
         tmp_path / "joint" / "metrics.jsonl"
     ).read_bytes()
+
+
+def _grad_norm_lines(run: Path) -> list[dict]:
+    def refuse(constant: str) -> None:
+        raise AssertionError(f"grad-norms.jsonl is not strict JSON: {constant}")
+
+    text = (run / "grad-norms.jsonl").read_text(encoding="utf-8")
+    return [json.loads(line, parse_constant=refuse) for line in text.splitlines()]
+
+
+def _clip_norms(step: list[tuple]) -> dict[str, float]:
+    return {event[1]: event[2] for event in step if event[0] == "clip"}
+
+
+@pytest.mark.parametrize("order", ["joint", "first"])
+def test_grad_norms_record_what_each_clip_returned(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, order: str
+) -> None:
+    """One line per optimizer step, numbered like metrics.jsonl, holding the clips' own norms."""
+
+    run = tmp_path / "run"
+    steps = split_steps(
+        instrumented_events(corpus, run, monkeypatch, discriminator_update_order=order)
+    )
+    lines = _grad_norm_lines(run)
+    metrics = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
+    assert [line["step"] for line in lines] == [row["step"] for row in metrics] == [1, 2, 3]
+    for line, step in zip(lines, steps):
+        norms = _clip_norms(step)
+        assert set(line) == {"step", "generator", "discriminator"}
+        assert line["generator"] == norms["g"]
+        assert line["discriminator"] == norms["d"]
+
+
+def test_grad_norms_hold_null_where_no_clip_ran(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Null means the module had no clip call that step; the generator always has one."""
+
+    run = tmp_path / "run"
+    recon = {"decoder_polish_mode": "recon", "posterior_warmup_steps": 0, "decoder_unfreeze_step": 0}
+    steps = split_steps(instrumented_events(corpus, run, monkeypatch, **recon))
+    lines = _grad_norm_lines(run)
+    assert len(lines) == len(steps) == 3
+    for line, step in zip(lines, steps):
+        assert line["discriminator"] is None
+        assert line["generator"] == _clip_norms(step)["g"]
+
+
+def test_a_non_finite_norm_is_kept_as_a_string() -> None:
+    record = training_module._grad_norm_record
+    assert record(None) is None
+    assert record(torch.tensor(2.5)) == 2.5
+    assert [record(torch.tensor(value)) for value in (float("inf"), float("-inf"), float("nan"))] == [
+        "inf", "-inf", "nan",
+    ]

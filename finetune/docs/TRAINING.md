@@ -204,6 +204,7 @@ runs/es-micro/
   training-options.json
   compatibility-report.json
   metrics.jsonl
+  grad-norms.jsonl
   training-summary.json
   checkpoints/
     adaptation-step-00001000.pth
@@ -236,6 +237,21 @@ have moved. A term the schedule switched off is written as `null`, never as
 `0.0`: a zero would read as measured and negligible, which is a different
 claim. Each entry in `validation/step-*.json` carries the two cheap comb
 screens for that clip, as a trend to watch rather than a gate.
+
+`grad-norms.jsonl` has one row per optimizer step, numbered like
+`metrics.jsonl`, with the total gradient norm each clip computed just before
+clipping (after AMP unscaling) for the `generator` and the `discriminator`.
+Recording it changes nothing the run computes; it is only the value
+`clip_grad_norm_` already returns. A value the clip computed as non-finite, as
+on a step AMP then skips, is written as the string `"inf"`, `"-inf"` or `"nan"`,
+so the file stays strict JSON; skipped steps still get their row. `null` means
+that module had no clip call in that step, which happens only to the
+discriminator while it does not train: the decoder stage of a
+reconstruction-only `decoder_polish_mode`. A zero adversarial weight does not
+stop the discriminator training, so it still gets a value. The file does not
+say which steps AMP skipped:
+count those from the optimizer state in the checkpoints. A resumed run appends,
+as `metrics.jsonl` does.
 
 ## Resume identity
 

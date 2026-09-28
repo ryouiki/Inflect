@@ -705,6 +705,20 @@ def _scalar(value: torch.Tensor | None) -> float | None:
     return None if value is None else float(value.detach().cpu())
 
 
+def _grad_norm_record(norm: torch.Tensor | None) -> float | str | None:
+    """A pre-clip total norm for grad-norms.jsonl.
+
+    None means no clip call happened for that module in the step (only the
+    discriminator, while a reconstruction-only polish keeps it idle). A value the
+    clip computed as non-finite, as on a step AMP then skips, is kept as the
+    string "inf", "-inf" or "nan" so the file stays strict JSON.
+    """
+    if norm is None:
+        return None
+    value = float(norm.detach().cpu())
+    return value if np.isfinite(value) else str(value)
+
+
 def _generator_objective(
     options: TrainingOptions,
     *,
@@ -1626,6 +1640,9 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         encoding="utf-8",
     )
     log_path = output_dir / "metrics.jsonl"
+    # The norms the gradient clips already compute, kept apart from
+    # metrics.jsonl so that file stays exactly as before.
+    grad_norm_path = output_dir / "grad-norms.jsonl"
     bundle.generator.train()
     bundle.discriminator.train()
     optimizer_g.zero_grad(set_to_none=True)
@@ -1667,6 +1684,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     loss_d = _discriminator_loss(real_scores, generated_scores)
 
             discriminator_first = options.discriminator_update_order == "first"
+            discriminator_norm = None
             if loss_d is not None:
                 scaler.scale(loss_d / options.gradient_accumulation_steps).backward()
                 if discriminator_first:
@@ -1674,7 +1692,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     # step's only discriminator update. The one scaler.update()
                     # below still covers both optimizers.
                     scaler.unscale_(optimizer_d)
-                    torch.nn.utils.clip_grad_norm_(
+                    discriminator_norm = torch.nn.utils.clip_grad_norm_(
                         bundle.discriminator.parameters(), options.max_grad_norm
                     )
                     scaler.step(optimizer_d)
@@ -1732,7 +1750,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             step_discriminator_here = train_discriminator and not discriminator_first
             if step_discriminator_here:
                 scaler.unscale_(optimizer_d)
-            torch.nn.utils.clip_grad_norm_(
+            generator_norm = torch.nn.utils.clip_grad_norm_(
                 [
                     parameter
                     for group in optimizer_g.param_groups
@@ -1742,7 +1760,7 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                 options.max_grad_norm,
             )
             if step_discriminator_here:
-                torch.nn.utils.clip_grad_norm_(
+                discriminator_norm = torch.nn.utils.clip_grad_norm_(
                     bundle.discriminator.parameters(), options.max_grad_norm
                 )
                 # Only when the discriminator had a backward pass this step and
@@ -1794,6 +1812,13 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             }
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(metrics, sort_keys=True) + "\n")
+            with grad_norm_path.open("a", encoding="utf-8") as handle:
+                record = {
+                    "step": state.step,
+                    "generator": _grad_norm_record(generator_norm),
+                    "discriminator": _grad_norm_record(discriminator_norm),
+                }
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
             if state.step % options.log_interval == 0:
                 LOGGER.info(
                     "step=%d stage=%s loss_g=%.4f loss_d=%.4f",
