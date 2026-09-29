@@ -960,9 +960,10 @@ def instrumented_events(
     """Run the loop and record, in order, what each update and each discriminator call saw.
 
     ("d_call", weights) for every call of the discriminator, with a copy of all
-    its parameters at that moment; ("unscale" | "step", "d" | "g") for every
-    scaler.unscale_ and scaler.step; ("clip", "d" | "g", pre-clip norm) for every
-    gradient clip; ("update",) for every
+    its parameters at that moment; ("unscale" | "step", "d" | "g", grads) for every
+    scaler.unscale_ and scaler.step, grads being a copy of the discriminator's
+    gradients at that moment (None for the generator); ("clip", "d" | "g",
+    pre-clip norm, limit) for every gradient clip; ("update",) for every
     scaler.update. The generator's optimizer is the one whose parameter groups
     are named. The stub runs without AMP, where unscale_ does nothing, so its
     calls are recorded rather than trusted to fail.
@@ -993,12 +994,23 @@ def instrumented_events(
         scaler = real_scaler(enabled)
         step, update, unscale = scaler.step, scaler.update, scaler.unscale_
 
+        def grads(optimizer):
+            if which(optimizer) != "d":
+                return None
+            return torch.cat([
+                p.grad.detach().flatten().clone()
+                for group in optimizer.param_groups
+                for p in group["params"]
+                if p.grad is not None
+            ])
+
         def counted_unscale(optimizer):
-            events.append(("unscale", which(optimizer)))
-            return unscale(optimizer)
+            result = unscale(optimizer)
+            events.append(("unscale", which(optimizer), grads(optimizer)))
+            return result
 
         def counted_step(optimizer, *args, **kwargs):
-            events.append(("step", which(optimizer)))
+            events.append(("step", which(optimizer), grads(optimizer)))
             return step(optimizer, *args, **kwargs)
 
         def counted_update(*args, **kwargs):
@@ -1013,9 +1025,10 @@ def instrumented_events(
     def counted_clip(parameters, *args, **kwargs):
         parameters = list(parameters)
         kind = "d" if id(parameters[0]) in discriminator_ids else "g"
+        limit = args[0] if args else kwargs["max_norm"]
         norm = real_clip(parameters, *args, **kwargs)
-        # The returned pre-clip norm rides along as a third field; shape() keeps two.
-        events.append(("clip", kind, float(norm)))
+        # The pre-clip norm and the limit ride along; shape() keeps two fields.
+        events.append(("clip", kind, float(norm), float(limit)))
         return norm
 
     monkeypatch.setattr(training_module, "build_training_models", build)
@@ -1187,3 +1200,87 @@ def test_a_non_finite_norm_is_kept_as_a_string() -> None:
     assert [record(torch.tensor(value)) for value in (float("inf"), float("-inf"), float("nan"))] == [
         "inf", "-inf", "nan",
     ]
+
+
+def _steps_with(corpus: Corpus, run: Path, monkeypatch: pytest.MonkeyPatch, **overrides: object) -> list[list[tuple]]:
+    return split_steps(instrumented_events(corpus, run, monkeypatch, **overrides))
+
+
+def test_each_module_clips_at_its_own_limit(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defaults clip both at max_grad_norm; a generator limit moves only the generator's clip."""
+
+    default = _steps_with(corpus, tmp_path / "default", monkeypatch)
+    raised = _steps_with(corpus, tmp_path / "raised", monkeypatch, generator_max_grad_norm=500.0)
+    for steps, expected in ((default, {"g": 10.0, "d": 10.0}), (raised, {"g": 500.0, "d": 10.0})):
+        for step in steps:
+            assert {event[1]: event[3] for event in step if event[0] == "clip"} == expected
+    assert [shape(step) for step in raised] == [shape(step) for step in default]
+
+
+@pytest.mark.parametrize("order", ["joint", "first"])
+def test_clipping_off_skips_the_clip_and_keeps_the_gradients(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, order: str
+) -> None:
+    """Off is no clip call at all: the discriminator steps on the gradients unscale_ left, and the
+    recorded norm is theirs. A tiny limit shows the check would catch a clip that changed them."""
+
+    run = tmp_path / "off"
+    steps = _steps_with(corpus, run, monkeypatch, discriminator_update_order=order,
+                        discriminator_grad_clipping="off")
+    lines = _grad_norm_lines(run)
+    for step, line in zip(steps, lines):
+        assert [event[1] for event in step if event[0] == "clip"] == ["g"]
+        (after_unscale,) = [event[2] for event in step if event[0] == "unscale" and event[1] == "d"]
+        (at_step,) = [event[2] for event in step if event[0] == "step" and event[1] == "d"]
+        assert torch.equal(after_unscale, at_step)
+        assert line["discriminator"] == pytest.approx(float(torch.linalg.vector_norm(at_step)), rel=1e-5)
+
+    tiny = _steps_with(corpus, tmp_path / "tiny", monkeypatch, discriminator_update_order=order,
+                       discriminator_max_grad_norm=1e-6)
+    changed = [
+        not torch.equal(
+            next(e[2] for e in step if e[0] == "unscale" and e[1] == "d"),
+            next(e[2] for e in step if e[0] == "step" and e[1] == "d"),
+        )
+        for step in tiny
+    ]
+    assert all(changed)
+
+
+def test_the_generator_can_skip_its_clip_too(
+    corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = tmp_path / "run"
+    steps = _steps_with(corpus, run, monkeypatch, generator_grad_clipping="off")
+    for step in steps:
+        assert [event[1] for event in step if event[0] == "clip"] == ["d"]
+    assert all(isinstance(line["generator"], float) for line in _grad_norm_lines(run))
+
+
+def test_the_total_norm_matches_clip_grad_norm_with_or_without_get_total_norm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """torch>=2.2 is allowed; get_total_norm exists only in newer releases."""
+
+    shapes = [(4, 3), (7,), (2, 2, 5), (1,)]
+
+    def parameters() -> list[torch.nn.Parameter]:
+        made = []
+        for index, shape_ in enumerate(shapes):
+            parameter = torch.nn.Parameter(torch.zeros(shape_))
+            parameter.grad = torch.randn(shape_, generator=torch.Generator().manual_seed(index)) * 30
+            made.append(parameter)
+        made.append(torch.nn.Parameter(torch.zeros(3)))  # no grad: skipped by both
+        return made
+
+    reference = float(torch.nn.utils.clip_grad_norm_(parameters(), 1e12))
+    kept = parameters()
+    before = [p.grad.clone() for p in kept if p.grad is not None]
+    assert float(training_module._total_grad_norm(kept)) == pytest.approx(reference, rel=1e-6)
+    assert all(torch.equal(a, p.grad) for a, p in zip(before, [p for p in kept if p.grad is not None]))
+    if hasattr(torch.nn.utils, "get_total_norm"):
+        monkeypatch.delattr(torch.nn.utils, "get_total_norm")
+    assert float(training_module._total_grad_norm(parameters())) == pytest.approx(reference, rel=1e-6)
+    assert float(training_module._total_grad_norm([torch.nn.Parameter(torch.zeros(2))])) == 0.0

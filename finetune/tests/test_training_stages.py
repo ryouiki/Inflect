@@ -9,6 +9,7 @@ import pytest
 from inflect_finetune.training import (
     DECODER_POLISH_MODES,
     DISCRIMINATOR_UPDATE_ORDERS,
+    GRAD_CLIPPING_MODES,
     POSTERIOR_INITS,
     STAGE_ADAPT,
     STAGE_DECODER,
@@ -50,6 +51,7 @@ def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -
     )
     assert POSTERIOR_INITS == ("fresh", "inherit")
     assert DISCRIMINATOR_UPDATE_ORDERS == ("joint", "first")
+    assert GRAD_CLIPPING_MODES == ("on", "off")
 
 
 @pytest.mark.parametrize(
@@ -79,6 +81,19 @@ def test_the_enumerated_settings_offer_exactly_the_values_the_cli_advertises() -
             (
                 "discriminator_update_order='first' steps the discriminator on every batch; "
                 "use gradient_accumulation_steps=1."
+            ),
+        ),
+        ({"max_grad_norm": 0.0}, "max_grad_norm must be a finite positive number."),
+        ({"max_grad_norm": float("inf")}, "max_grad_norm must be a finite positive number."),
+        ({"generator_grad_clipping": "none"}, "generator_grad_clipping must be one of ['on', 'off']."),
+        ({"discriminator_grad_clipping": 0}, "discriminator_grad_clipping must be one of ['on', 'off']."),
+        ({"generator_max_grad_norm": 0.0}, "generator_max_grad_norm must be a finite positive number."),
+        ({"discriminator_max_grad_norm": -1.0}, "discriminator_max_grad_norm must be a finite positive number."),
+        (
+            {"discriminator_grad_clipping": "off", "discriminator_max_grad_norm": 10.0},
+            (
+                "discriminator_grad_clipping='off' skips the clip, so discriminator_max_grad_norm "
+                "would be ignored; leave it unset."
             ),
         ),
     ],

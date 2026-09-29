@@ -292,6 +292,10 @@ _NEW_TRAIN_FLAGS = (
     ("--posterior-init", "inherit", "posterior_init", "inherit"),
     ("--generator-ema-decay", "0.999", "generator_ema_decay", 0.999),
     ("--discriminator-update-order", "first", "discriminator_update_order", "first"),
+    ("--generator-max-grad-norm", "500", "generator_max_grad_norm", 500.0),
+    ("--discriminator-max-grad-norm", "20", "discriminator_max_grad_norm", 20.0),
+    ("--generator-grad-clipping", "off", "generator_grad_clipping", "off"),
+    ("--discriminator-grad-clipping", "off", "discriminator_grad_clipping", "off"),
 )
 
 _NEW_TRAIN_FIELDS = frozenset(field for _, _, field, _ in _NEW_TRAIN_FLAGS)
@@ -347,6 +351,8 @@ def test_omitting_the_new_train_flags_leaves_every_field_at_its_dataclass_defaul
     assert options.posterior_init == "fresh"
     assert options.generator_ema_decay == 0.0
     assert options.discriminator_update_order == "joint"
+    assert options.generator_max_grad_norm is None and options.discriminator_max_grad_norm is None
+    assert options.generator_grad_clipping == "on" and options.discriminator_grad_clipping == "on"
 
 
 @pytest.mark.parametrize("coerce", [_non_negative_int, _non_negative_float, _unit_interval])

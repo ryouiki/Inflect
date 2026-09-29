@@ -304,6 +304,22 @@ def _add_train(subparsers: Any) -> None:
             "--gradient-accumulation-steps 1)."
         ),
     )
+    for module in ("generator", "discriminator"):
+        parser.add_argument(
+            f"--{module}-max-grad-norm",
+            type=float,
+            default=argparse.SUPPRESS,
+            help=f"Clip limit for the {module}'s gradient norm. Default: max_grad_norm.",
+        )
+        parser.add_argument(
+            f"--{module}-grad-clipping",
+            choices=("on", "off"),
+            default=argparse.SUPPRESS,
+            help=(
+                f"'off' skips the {module}'s gradient clip (it is not a limit of zero); "
+                "its norm is still recorded in grad-norms.jsonl."
+            ),
+        )
     parser.set_defaults(handler=_run_train)
 
 
@@ -500,6 +516,10 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "posterior_init",
         "generator_ema_decay",
         "discriminator_update_order",
+        "generator_max_grad_norm",
+        "discriminator_max_grad_norm",
+        "generator_grad_clipping",
+        "discriminator_grad_clipping",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}

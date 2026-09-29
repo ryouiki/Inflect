@@ -239,19 +239,31 @@ claim. Each entry in `validation/step-*.json` carries the two cheap comb
 screens for that clip, as a trend to watch rather than a gate.
 
 `grad-norms.jsonl` has one row per optimizer step, numbered like
-`metrics.jsonl`, with the total gradient norm each clip computed just before
-clipping (after AMP unscaling) for the `generator` and the `discriminator`.
-Recording it changes nothing the run computes; it is only the value
-`clip_grad_norm_` already returns. A value the clip computed as non-finite, as
+`metrics.jsonl`, with the total gradient norm after AMP unscaling and before
+any clip, for the `generator` and the `discriminator`. Recording it changes
+nothing the run computes; with clipping on it is the value `clip_grad_norm_`
+already returns. A value the clip computed as non-finite, as
 on a step AMP then skips, is written as the string `"inf"`, `"-inf"` or `"nan"`,
 so the file stays strict JSON; skipped steps still get their row. `null` means
-that module had no clip call in that step, which happens only to the
+no norm was measured for that module in that step, which happens only to the
 discriminator while it does not train: the decoder stage of a
 reconstruction-only `decoder_polish_mode`. A zero adversarial weight does not
 stop the discriminator training, so it still gets a value. The file does not
 say which steps AMP skipped:
 count those from the optimizer state in the checkpoints. A resumed run appends,
-as `metrics.jsonl` does.
+as `metrics.jsonl` does. The file does not say which clipping applied either;
+read it from `training-options.json`.
+
+Gradient clipping is set per module. `max_grad_norm` (default 10) is the limit
+for both unless `--generator-max-grad-norm` or `--discriminator-max-grad-norm`
+sets one module's own. `--generator-grad-clipping off` or
+`--discriminator-grad-clipping off` skips that module's clip altogether; it is
+not a limit of zero, and a limit given together with `off` is refused. The norm
+is still measured and recorded, with `torch.nn.utils.get_total_norm` on torch
+releases that have it and the same computation written out on older ones. The
+defaults clip both modules at `max_grad_norm` exactly as earlier runs did, but
+the new fields are part of the run identity, so a run started before them
+cannot be resumed with this version.
 
 ## Resume identity
 

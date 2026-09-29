@@ -67,6 +67,9 @@ POSTERIOR_INITS = ("fresh", "inherit")
 #: generator's adversarial terms are computed, so they are scored by the
 #: discriminator this step just updated (the order of the VITS reference loop).
 DISCRIMINATOR_UPDATE_ORDERS = ("joint", "first")
+#: Per-module gradient clipping. "on": clip_grad_norm_ at that module's limit.
+#: "off": the clip is skipped; the norm is still computed for grad-norms.jsonl.
+GRAD_CLIPPING_MODES = ("on", "off")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
 # model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
@@ -140,6 +143,13 @@ class TrainingOptions:
     posterior_init: str = "fresh"
     generator_ema_decay: float = 0.0
     discriminator_update_order: str = "joint"
+    # Per-module clipping. A limit of None uses max_grad_norm, so the defaults
+    # clip both modules at max_grad_norm exactly as before. "off" skips the clip
+    # (it is not a limit of zero); the norm is still measured and recorded.
+    generator_max_grad_norm: float | None = None
+    discriminator_max_grad_norm: float | None = None
+    generator_grad_clipping: str = "on"
+    discriminator_grad_clipping: str = "on"
 
     @classmethod
     def from_preset(
@@ -279,6 +289,20 @@ def _validate_options(options: TrainingOptions) -> None:
             "discriminator_update_order='first' steps the discriminator on every batch; "
             "use gradient_accumulation_steps=1."
         )
+    if not (np.isfinite(float(options.max_grad_norm)) and float(options.max_grad_norm) > 0):
+        raise ValueError("max_grad_norm must be a finite positive number.")
+    for module in ("generator", "discriminator"):
+        mode = getattr(options, f"{module}_grad_clipping")
+        limit = getattr(options, f"{module}_max_grad_norm")
+        if mode not in GRAD_CLIPPING_MODES:
+            raise ValueError(f"{module}_grad_clipping must be one of {list(GRAD_CLIPPING_MODES)}.")
+        if limit is not None and not (np.isfinite(float(limit)) and float(limit) > 0):
+            raise ValueError(f"{module}_max_grad_norm must be a finite positive number.")
+        if mode == "off" and limit is not None:
+            raise ValueError(
+                f"{module}_grad_clipping='off' skips the clip, so {module}_max_grad_norm "
+                "would be ignored; leave it unset."
+            )
     if not 0.0 <= float(options.generator_ema_decay) < 1.0:
         raise ValueError("generator_ema_decay must be at least 0 and below 1.")
     if options.decoder_unfreeze_step is None:
@@ -705,10 +729,41 @@ def _scalar(value: torch.Tensor | None) -> float | None:
     return None if value is None else float(value.detach().cpu())
 
 
+def _total_grad_norm(parameters: Iterable[torch.Tensor]) -> torch.Tensor:
+    """The total 2-norm of the parameters' gradients, leaving them untouched.
+
+    The measurement clip_grad_norm_ makes before it scales. torch 2.6 and later
+    expose it as torch.nn.utils.get_total_norm; the fallback for older releases
+    (the toolkit allows torch>=2.2) stacks the per-tensor 2-norms and takes their
+    2-norm. Only recorded, never used in the update.
+    """
+    grads = [p.grad for p in parameters if p.grad is not None]
+    get_total_norm = getattr(torch.nn.utils, "get_total_norm", None)
+    if get_total_norm is not None:
+        return get_total_norm(grads, 2.0, False, None)
+    if not grads:
+        return torch.tensor(0.0)
+    return torch.linalg.vector_norm(
+        torch.stack([torch.linalg.vector_norm(g.detach(), 2.0) for g in grads]), 2.0
+    )
+
+
+def _clip_or_measure(
+    parameters: Iterable[torch.Tensor], options: TrainingOptions, module: str
+) -> torch.Tensor:
+    """Clip one module's gradients as its options say, returning the pre-clip norm."""
+    if getattr(options, f"{module}_grad_clipping") == "off":
+        return _total_grad_norm(list(parameters))
+    limit = getattr(options, f"{module}_max_grad_norm")
+    return torch.nn.utils.clip_grad_norm_(
+        parameters, options.max_grad_norm if limit is None else limit
+    )
+
+
 def _grad_norm_record(norm: torch.Tensor | None) -> float | str | None:
     """A pre-clip total norm for grad-norms.jsonl.
 
-    None means no clip call happened for that module in the step (only the
+    None means no norm was measured for that module in the step (only the
     discriminator, while a reconstruction-only polish keeps it idle). A value the
     clip computed as non-finite, as on a step AMP then skips, is kept as the
     string "inf", "-inf" or "nan" so the file stays strict JSON.
@@ -1692,8 +1747,8 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
                     # step's only discriminator update. The one scaler.update()
                     # below still covers both optimizers.
                     scaler.unscale_(optimizer_d)
-                    discriminator_norm = torch.nn.utils.clip_grad_norm_(
-                        bundle.discriminator.parameters(), options.max_grad_norm
+                    discriminator_norm = _clip_or_measure(
+                        bundle.discriminator.parameters(), options, "discriminator"
                     )
                     scaler.step(optimizer_d)
                     optimizer_d.zero_grad(set_to_none=True)
@@ -1750,18 +1805,19 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             step_discriminator_here = train_discriminator and not discriminator_first
             if step_discriminator_here:
                 scaler.unscale_(optimizer_d)
-            generator_norm = torch.nn.utils.clip_grad_norm_(
+            generator_norm = _clip_or_measure(
                 [
                     parameter
                     for group in optimizer_g.param_groups
                     for parameter in group["params"]
                     if parameter.requires_grad
                 ],
-                options.max_grad_norm,
+                options,
+                "generator",
             )
             if step_discriminator_here:
-                discriminator_norm = torch.nn.utils.clip_grad_norm_(
-                    bundle.discriminator.parameters(), options.max_grad_norm
+                discriminator_norm = _clip_or_measure(
+                    bundle.discriminator.parameters(), options, "discriminator"
                 )
                 # Only when the discriminator had a backward pass this step and
                 # was not already stepped before the generator's terms: stepping

@@ -304,6 +304,10 @@ _NEW_OPTION_FIELDS = (
     "posterior_init",
     "generator_ema_decay",
     "discriminator_update_order",
+    "generator_max_grad_norm",
+    "discriminator_max_grad_norm",
+    "generator_grad_clipping",
+    "discriminator_grad_clipping",
 )
 
 _OPTIMIZER_SCHEMA = {"generator": {"class": "torch.optim.AdamW"}}
@@ -384,6 +388,10 @@ def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour()
     assert payload["posterior_init"] == "fresh"
     assert payload["generator_ema_decay"] == 0.0
     assert payload["discriminator_update_order"] == "joint"
+    assert payload["generator_max_grad_norm"] is None
+    assert payload["discriminator_max_grad_norm"] is None
+    assert payload["generator_grad_clipping"] == "on"
+    assert payload["discriminator_grad_clipping"] == "on"
 
 
 def _identity_pair(tmp_path: Path) -> tuple[dict, dict]:
