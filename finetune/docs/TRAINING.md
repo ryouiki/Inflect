@@ -346,6 +346,15 @@ parameter groups that can move compared with the ones the stage enables. It
 stops there if any of these differs. `run-identity.json` pins the checkpoint by
 sha256 under `init`, and a resume rebuilds that block from the same file.
 
+`--init-from-discriminator fresh` (`init_from_discriminator`, default
+`inherit`) loads the generator alone. The discriminator stays the seeded one
+the toolkit builds for every run, which is where a run without `--init-from`
+starts, and its optimizer starts empty as usual. `init-check.json` then compares
+the discriminator with a copy taken when it was built and records its source as
+`fresh`; `run-identity.json` lists it under `not_inherited`. A resume of such a
+run restores the discriminator from its own checkpoint and does not build a new
+one. The option is refused without `--init-from`.
+
 `decoder_polish_mode=posterior_decoder` trains the posterior encoder and the
 decoder together during the polish stage and holds `enc_p`, `dp` and `flow`;
 the discriminator stays on. To train the acoustic path alone from the first

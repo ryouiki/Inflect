@@ -70,6 +70,11 @@ DISCRIMINATOR_UPDATE_ORDERS = ("joint", "first")
 #: Per-module gradient clipping. "on": clip_grad_norm_ at that module's limit.
 #: "off": the clip is skipped; the norm is still computed for grad-norms.jsonl.
 GRAD_CLIPPING_MODES = ("on", "off")
+#: Where an `init_from` run's discriminator starts. "inherit": the checkpoint's
+#: discriminator (every earlier init_from run). "fresh": the checkpoint's
+#: weights are not loaded into it, so it stays the seeded discriminator
+#: `build_training_models` made -- the one a run without init_from starts with.
+INIT_DISCRIMINATOR_MODES = ("inherit", "fresh")
 FROZEN_UPSAMPLER_PREFIXES = ("dec.ups.", "dec.conv_pre.")
 # Linear-frequency resolutions as (n_fft, hop). The 1024/256 pair matches the
 # model's own analysis grid; 2048 gives 11.7 Hz bins at 24 kHz, fine enough to
@@ -150,6 +155,9 @@ class TrainingOptions:
     discriminator_max_grad_norm: float | None = None
     generator_grad_clipping: str = "on"
     discriminator_grad_clipping: str = "on"
+    # Only with init_from: "fresh" keeps the seeded discriminator instead of
+    # loading the checkpoint's. The generator is loaded either way.
+    init_from_discriminator: str = "inherit"
 
     @classmethod
     def from_preset(
@@ -231,6 +239,15 @@ def _validate_options(options: TrainingOptions) -> None:
         raise ValueError(
             "branch_from continues another run with its whole state and init_from starts a "
             "new recipe from its weights alone; pass one of them, not both."
+        )
+    if options.init_from_discriminator not in INIT_DISCRIMINATOR_MODES:
+        raise ValueError(
+            f"init_from_discriminator must be one of {list(INIT_DISCRIMINATOR_MODES)}."
+        )
+    if options.init_from is None and options.init_from_discriminator == "fresh":
+        raise ValueError(
+            "init_from_discriminator='fresh' only applies to an init_from run; without "
+            "init_from the discriminator always starts fresh."
         )
     if options.init_from is not None and options.posterior_init == "inherit":
         raise ValueError(
@@ -1210,6 +1227,8 @@ def _same_optimizer_moments(live: Mapping[str, Any], saved: Mapping[str, Any]) -
 
 #: What a run started with `init_from` takes from that checkpoint, by payload
 #: key, and what it leaves behind. The optimizer starts empty and the step at 0.
+#: With init_from_discriminator='fresh' the discriminator moves to the second
+#: list (see `_init_state_lists`).
 INIT_INHERITED_STATE = ("generator", "discriminator")
 INIT_NOT_INHERITED = (
     "optimizer_g",
@@ -1222,6 +1241,15 @@ INIT_NOT_INHERITED = (
     "epoch",
     "stage",
 )
+
+
+def _init_state_lists(options: TrainingOptions) -> tuple[list[str], list[str]]:
+    """The payload keys an `init_from` run takes, and the ones it leaves behind."""
+
+    if options.init_from_discriminator == "fresh":
+        inherited = [key for key in INIT_INHERITED_STATE if key != "discriminator"]
+        return inherited, ["discriminator", *INIT_NOT_INHERITED]
+    return list(INIT_INHERITED_STATE), list(INIT_NOT_INHERITED)
 
 
 def _load_init_weights(
@@ -1238,13 +1266,14 @@ def _load_init_weights(
             "init_from checkpoint was trained with a different symbol inventory than "
             "this dataset."
         )
+    inherited, not_inherited = _init_state_lists(options)
     block = {
         "checkpoint_sha256": sha256_file(path),
         "parent_run_id": str(payload["run_identity"].get("run_id", "")),
         "parent_step": payload["step"],
         "parent_stage": payload["stage"],
-        "inherited": list(INIT_INHERITED_STATE),
-        "not_inherited": list(INIT_NOT_INHERITED),
+        "inherited": inherited,
+        "not_inherited": not_inherited,
     }
     return block, payload
 
@@ -1257,17 +1286,25 @@ def _init_check(
     optimizer_g: torch.optim.Optimizer,
     options: TrainingOptions,
     stage: str,
+    fresh_discriminator: Mapping[str, torch.Tensor] | None = None,
 ) -> dict[str, Any]:
     """Compare the state before the first update with what `init_from` promised.
 
     The weights must be the checkpoint's bit for bit, the optimizer must be
     empty, and the parameter groups that can move must be exactly the ones the
     stage enables -- a clean load says nothing about which of them will train.
+    A fresh discriminator is compared with the copy taken when it was built.
     """
 
+    expected_discriminator = (
+        payload["discriminator"] if fresh_discriminator is None else fresh_discriminator
+    )
     items: dict[str, dict[str, Any]] = {
         "generator": _same_tensors(generator.state_dict(), payload["generator"]),
-        "discriminator": _same_tensors(discriminator.state_dict(), payload["discriminator"]),
+        "discriminator": {
+            **_same_tensors(discriminator.state_dict(), expected_discriminator),
+            "source": "init_from" if fresh_discriminator is None else "fresh",
+        },
     }
     expected = sorted(_enabled_groups(options, stage))
     trainable = sorted(
@@ -1527,13 +1564,23 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
         posterior_state=posterior_state,
     )
     compatibility.write(output_dir / "compatibility-report.json")
+    fresh_discriminator: dict[str, torch.Tensor] | None = None
     if init_payload is not None:
         if resume_checkpoint is None:
             # Before the anchor and EMA snapshots, so both start from these
             # weights. A resume loads its own over them, so it skips this.
             bundle.generator.load_state_dict(init_payload["generator"], strict=True)
-            bundle.discriminator.load_state_dict(init_payload["discriminator"], strict=True)
+            if options.init_from_discriminator == "fresh":
+                # A real copy, so the check below compares against the weights
+                # as built rather than against the live tensors themselves.
+                fresh_discriminator = {
+                    name: tensor.detach().clone()
+                    for name, tensor in bundle.discriminator.state_dict().items()
+                }
+            else:
+                bundle.discriminator.load_state_dict(init_payload["discriminator"], strict=True)
         else:
+            # The checkpoint carries this run's own discriminator, fresh or not.
             init_payload = None
     bundle.generator.to(device)
     bundle.discriminator.to(device)
@@ -1650,8 +1697,10 @@ def train_adaptation(options: TrainingOptions) -> dict[str, Any]:
             optimizer_g=optimizer_g,
             options=options,
             stage=state.stage,
+            fresh_discriminator=fresh_discriminator,
         )
         init_payload = None
+        fresh_discriminator = None
         (output_dir / "init-check.json").write_text(
             json.dumps(check, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
             encoding="utf-8",

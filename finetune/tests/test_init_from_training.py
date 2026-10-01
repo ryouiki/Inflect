@@ -20,6 +20,7 @@ from test_training_loop_stub import build_corpus, make_options, metric_rows
 from inflect_finetune import training as training_module
 from inflect_finetune.checkpoint import sha256_file
 from inflect_finetune.cli import _run_train, build_parser
+from inflect_finetune.modeling import build_training_models, load_symbols
 from inflect_finetune.training import (
     STAGE_DECODER,
     TrainingOptions,
@@ -87,6 +88,7 @@ def test_a_run_starts_from_the_weights_alone_and_moves_only_the_acoustic_path(
     check = json.loads((run / "init-check.json").read_text(encoding="utf-8"))
     assert check["passed"] is True
     assert check["items"]["generator"]["ok"] and check["items"]["discriminator"]["ok"]
+    assert check["items"]["discriminator"]["source"] == "init_from"
     assert check["items"]["active_groups"]["trainable"] == ["decoder", "posterior"]
     assert check["items"]["active_groups"]["stage"] == STAGE_DECODER
     assert check["items"]["optimizer"]["entries"] == 0
@@ -171,6 +173,100 @@ def test_init_from_refuses_a_branch_and_an_inherited_posterior(parent, tmp_path:
         train_adaptation(
             make_options(
                 corpus, tmp_path / "b", max_steps=5, init_from=checkpoint, posterior_init="inherit"
+            )
+        )
+
+
+def _states(module: torch.nn.Module) -> dict[str, torch.Tensor]:
+    return {name: tensor.detach().clone().cpu() for name, tensor in module.state_dict().items()}
+
+
+def _same(left: dict[str, torch.Tensor], right: dict[str, torch.Tensor]) -> bool:
+    return set(left) == set(right) and all(torch.equal(left[k], right[k].cpu()) for k in left)
+
+
+def _built_discriminator(corpus, seed: int) -> dict[str, torch.Tensor]:
+    symbols = load_symbols(Path(corpus.prepared) / "symbols.json")
+    return _states(build_training_models(corpus.base, symbols, seed=seed).discriminator)
+
+
+def test_a_fresh_discriminator_starts_as_built_while_the_generator_comes_from_the_checkpoint(
+    parent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus, checkpoint = parent
+    seen: dict[str, dict[str, torch.Tensor]] = {}
+    real_check = training_module._init_check
+
+    def capture(**kwargs):
+        seen["generator"] = _states(kwargs["generator"])
+        seen["discriminator"] = _states(kwargs["discriminator"])
+        return real_check(**kwargs)
+
+    monkeypatch.setattr(training_module, "_init_check", capture)
+    run = tmp_path / "fresh"
+    options = make_options(
+        corpus, run, max_steps=2, init_from=checkpoint, init_from_discriminator="fresh", **ACOUSTIC
+    )
+    train_adaptation(options)
+
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    built = _built_discriminator(corpus, options.seed)
+    assert _same(seen["generator"], payload["generator"])
+    assert _same(seen["discriminator"], built)
+    assert not _same(seen["discriminator"], payload["discriminator"])
+
+    check = json.loads((run / "init-check.json").read_text(encoding="utf-8"))
+    assert check["passed"] is True
+    assert check["items"]["discriminator"]["source"] == "fresh"
+    assert check["items"]["discriminator"]["ok"] is True
+    identity = json.loads((run / "run-identity.json").read_text(encoding="utf-8"))
+    assert identity["init"]["inherited"] == ["generator"]
+    assert identity["init"]["not_inherited"][0] == "discriminator"
+    assert "optimizer_d" in identity["init"]["not_inherited"]
+
+
+def test_a_fresh_discriminator_run_resumes_with_its_saved_discriminator(
+    parent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resume restores the discriminator it saved; it never builds a fresh one again."""
+
+    corpus, checkpoint = parent
+    run = tmp_path / "fresh-resume"
+    settings: dict[str, object] = {
+        "max_steps": 3,
+        "checkpoint_interval": 2,
+        "init_from": checkpoint,
+        "init_from_discriminator": "fresh",
+        **ACOUSTIC,
+    }
+    train_adaptation(make_options(corpus, run, **settings))
+    rows = metric_rows(run)
+    middle = run / "checkpoints" / "adaptation-step-00000002.pth"
+    saved = torch.load(middle, map_location="cpu", weights_only=False)["discriminator"]
+    assert not _same(saved, _built_discriminator(corpus, make_options(corpus, run).seed))
+
+    loaded: dict[str, torch.Tensor] = {}
+    real_resume = training_module.resume_training_checkpoint
+
+    def capture(*args, **kwargs):
+        result = real_resume(*args, **kwargs)
+        loaded.update(_states(kwargs["discriminator"]))
+        return result
+
+    monkeypatch.setattr(training_module, "resume_training_checkpoint", capture)
+    train_adaptation(make_options(corpus, run, resume=middle, **settings))
+    assert _same(loaded, saved)
+    assert [row["step"] for row in metric_rows(run)][len(rows) :] == [3]
+
+
+def test_a_fresh_discriminator_needs_init_from_and_a_known_mode(parent, tmp_path: Path) -> None:
+    corpus, checkpoint = parent
+    with pytest.raises(ValueError, match="only applies to an init_from run"):
+        train_adaptation(make_options(corpus, tmp_path / "a", init_from_discriminator="fresh"))
+    with pytest.raises(ValueError, match="init_from_discriminator must be one of"):
+        train_adaptation(
+            make_options(
+                corpus, tmp_path / "b", init_from=checkpoint, init_from_discriminator="random"
             )
         )
 

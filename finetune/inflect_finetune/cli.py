@@ -320,6 +320,16 @@ def _add_train(subparsers: Any) -> None:
                 "its norm is still recorded in grad-norms.jsonl."
             ),
         )
+    parser.add_argument(
+        "--init-from-discriminator",
+        choices=("inherit", "fresh"),
+        default=argparse.SUPPRESS,
+        help=(
+            "With --init-from: 'fresh' does not load the checkpoint's discriminator and keeps "
+            "the seeded one a run without --init-from starts with. The generator is loaded "
+            "either way."
+        ),
+    )
     parser.set_defaults(handler=_run_train)
 
 
@@ -520,6 +530,7 @@ def _run_train(args: argparse.Namespace) -> dict[str, Any]:
         "discriminator_max_grad_norm",
         "generator_grad_clipping",
         "discriminator_grad_clipping",
+        "init_from_discriminator",
     )
     parsed = vars(args)
     overrides = {name: parsed[name] for name in override_names if name in parsed}

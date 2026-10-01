@@ -308,6 +308,7 @@ _NEW_OPTION_FIELDS = (
     "discriminator_max_grad_norm",
     "generator_grad_clipping",
     "discriminator_grad_clipping",
+    "init_from_discriminator",
 )
 
 _OPTIMIZER_SCHEMA = {"generator": {"class": "torch.optim.AdamW"}}
@@ -392,6 +393,7 @@ def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour()
     assert payload["discriminator_max_grad_norm"] is None
     assert payload["generator_grad_clipping"] == "on"
     assert payload["discriminator_grad_clipping"] == "on"
+    assert payload["init_from_discriminator"] == "inherit"
 
 
 def _identity_pair(tmp_path: Path) -> tuple[dict, dict]:
