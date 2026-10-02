@@ -31,7 +31,7 @@
   - J5부터 `ja-spkA-v3`를 쓴다(J1–J4는 v2). v2 대비 전사 30행을 고쳤다(A0 2 + A1 28, §3.38–§3.39). 분할 · 검증 · 오디오는 v2와 같다.
   - *(2026-09-29 보완)* v3에 A1에서 확인한 읽기 교정 1건을 lexicon으로 더해 다시 준비했다. 학습 1행의 음소만 바뀌었고 분할 · 검증 · 기호표 · 오디오는 같다. lexicon은 준비 · export · 런타임에 `INFLECT_JA_LEXICON`으로 같은 파일을 넘겨야 한다(패키지에 들어가지 않는다).
   - 벤치마크 0004는 **이미 교정됐다**(벤치마크 텍스트 · 렌더 입력 · CER 기준, §3.39). 남은 것은 prepared 검증 목록의 옛 전사이고, 분할 재현 때문에 그대로 두며 학습에는 쓰이지 않는다. 0004에서는 교정 전후 렌더의 입력이 다르다.
-- **코드**(학습 전용 옵션, 기본값은 이전과 같은 동작): `--init-from`(다른 런의 가중치로 새 레시피 시작), `discriminator_update_order`, `--branch-from`(전체 상태를 이어 연장), 청취 페이지의 음높이 · 잡음 문항(`examples/build_blind_ab_page.py`의 `--pitch-axis` · `--noise-axis`, §3.36)과 규칙으로 고른 글자 배정(`--row-letters`, §3.40). 학습은 clip 전 gradient norm을 `grad-norms.jsonl`에 남긴다(C29, 계산 불변). 옵션 설명은 [TRAINING.md](../TRAINING.md).
+- **코드**(학습 전용 옵션, 기본값은 이전과 같은 동작): `--init-from`(다른 런의 가중치로 새 레시피 시작), `discriminator_update_order`, `--branch-from`(전체 상태를 이어 연장), 청취 페이지의 음높이 · 잡음 문항(`examples/build_blind_ab_page.py`의 `--pitch-axis` · `--noise-axis`, §3.36), 규칙으로 고른 글자 배정(`--row-letters`, §3.40), 같은 문장의 녹음이 없는 행의 공개 참고 음성(`--reference-rows`, Q7 설계 §5). `--init-from`에서 판별기만 새로 시작하는 `init_from_discriminator`(C32). 학습은 clip 전 gradient norm을 `grad-norms.jsonl`에 남긴다(C29, 계산 불변). 옵션 설명은 [TRAINING.md](../TRAINING.md).
 - **다음(사용자 결정, 2026-10-02)**: J6 미채택 확정(§3.41 보완). 다음 두 가지를 한다.
   - J7: J5a에서 판별기만 fresh로 바꾼 한 런. J2 묶음 중 출발점 하나만 되돌린다.
   - Q7 준비 병행: 설계 v0.2에서 합성 단계 직후와 실물 적응 후 출력을 모두 확인하고, 새 평가 문장의 낱말 검사를 유지한다.
@@ -54,7 +54,7 @@
 | [08-joint-adaptation.md](08-joint-adaptation.md) | §3.33– 비교 기준점과 Inflect 공동 적응(2026-09-26 ~) |
 | [09-code-and-appendix.md](09-code-and-appendix.md) | §4 코드 변경 목록, §5 부록(JA · 선행 프로젝트 반영분 · KO) |
 | [10-risks.md](10-risks.md) | §7 리스크 레지스터 |
-| [11-q7-ja-pretraining-design.md](11-q7-ja-pretraining-design.md) | §8 Q7 설계(v0.1): 일본어 사전학습 기반 강화의 비용 · 첫 파일럿 · 평가 확장 |
+| [11-q7-ja-pretraining-design.md](11-q7-ja-pretraining-design.md) | §8 Q7 설계(v0.2): 일본어 사전학습 기반 강화의 비용 · 첫 파일럿(합성 단계 직후 · 실물 적응 후 두 시점) · 평가 확장(공개 참고 음성, 낱말 검사 유지) |
 | [CHANGELOG.md](CHANGELOG.md) | 변경 이력 |
 | [../HANDOFF.md](../HANDOFF.md) | 새 환경 셋업 · 인계. 옛 §6(CUDA 머신 인계)은 이 문서의 부록으로 옮겼다 |
 
@@ -100,7 +100,7 @@
 | ~~Q4~~ | ~~D1 — 일본어 피치 악센트 표기~~ | **결정됨: `↑`/`↓`** (§5.1 D1). C6 완료로 `ꜜ`도 가능해졌지만 재개방하지 않음 |
 | ~~Q5~~ | ~~D2 — 일본어 악센트구 경계를 공백 유지 vs base의 `—`로 분리 (§5.1 D2)~~ | **결정(2026-09-29): 현재 표기(공백) 유지.** 사전학습과의 호환을 바꾸는 별도 실험이고, J1–J3 차이를 직접 설명하지 못한다 |
 | Q6 | K1-D1 — 한국어 ㅐ/ㅔ 구분 유지 vs 병합 (§5.3) | **보류(2026-09-29)**: 일본어 목표와 별개. KO 재개 때 정한다 |
-| Q7 | 일본어 사전학습 기반 강화 — 같은 소형 Inflect 구조의 일본어 다화자 사전학습, 또는 좋은 모델을 교사로 활용하는 학습의 비용 · 가능성 검토 (J5 뒤 상충 지속, §3.40) | **조사 계획만(2026-09-30 등재)**. 다른 모델로 교체하지 않고 Inflect 개선에 쓰는 방향. 실험 전 별도 계획 · 승인. 설계 v0.1: [11-q7-ja-pretraining-design.md](11-q7-ja-pretraining-design.md)(첫 파일럿 Q7B-1 = 교사 합성 사전 단계, 대조군 J5a) |
+| Q7 | 일본어 사전학습 기반 강화 — 같은 소형 Inflect 구조의 일본어 다화자 사전학습, 또는 좋은 모델을 교사로 활용하는 학습의 비용 · 가능성 검토 (J5 뒤 상충 지속, §3.40) | **조사 계획만(2026-09-30 등재)**. 다른 모델로 교체하지 않고 Inflect 개선에 쓰는 방향. 실험 전 별도 계획 · 승인. 설계 v0.2(2026-10-02): [11-q7-ja-pretraining-design.md](11-q7-ja-pretraining-design.md)(첫 파일럿 Q7B-1 = 교사 합성 사전 단계, 대조군 J5a, 합성 단계 직후 · 실물 적응 후 두 시점 확인). J7에 유망한 신호가 없으면 다음 우선순위 |
 
 ---
 

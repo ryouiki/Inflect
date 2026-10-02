@@ -850,3 +850,62 @@ def test_the_pitch_and_noise_axes_need_the_short_page_and_noise_replaces_click(p
     with pytest.raises(SystemExit, match="replaces --click-axis"):
         page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--noise-axis", "--click-axis",
                           "--output", str(tmp_path / "round2")])
+
+
+def test_the_short_page_is_unchanged_without_reference_rows(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder before --reference-rows (commit 06ea0cb) wrote, with every short-page axis."""
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", "06ea0cb:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / "build_blind_ab_page_06ea0cb.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_blind_ab_page_06ea0cb", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    extra = ["--pitch-axis", "--noise-axis", "--speaker-axis"]
+    assert _built(old, tmp_path, "old", extra, monkeypatch) == _built(page_module, tmp_path, "new", extra, monkeypatch)
+
+
+def _reference_page(page_module, tmp_path, extra=(), reference=None, ids=("0001", "x01")):
+    first = evaluate_output(tmp_path, "early", ["0001", "x01"], 0.2)
+    second = evaluate_output(tmp_path, "late", ["0001", "x01"], 0.3)
+    anchor = evaluate_output(tmp_path, "anchor", ["0001", "0002"], 0.05)
+    (tmp_path / "ids.txt").write_text("\n".join(ids) + "\n", encoding="utf-8")
+    (tmp_path / "reference.json").write_text(json.dumps(reference or {"x01": "0002"}), encoding="utf-8")
+    output = tmp_path / f"page-{len(list(tmp_path.glob('page-*')))}"
+    code = page_module.main(
+        ["--system", f"early={first}", "--system", f"late={second}", "--anchor", str(anchor),
+         "--must-include-ids", str(tmp_path / "ids.txt"), "--rows", "2", "--catch-rows", "1", "--catch-system", "late",
+         "--reference-rows", str(tmp_path / "reference.json"), *extra, "--output", str(output)]
+    )
+    return code, output, anchor
+
+
+def test_a_reference_row_shows_another_sentences_recording_openly_and_letters_only_the_systems(page_module, tmp_path):
+    code, output, anchor = _reference_page(page_module, tmp_path, ["--short-axes", "--pitch-axis", "--noise-axis"])
+    assert code == 0
+    mapping = json.loads((output / "mapping.json").read_text(encoding="utf-8"))
+    assert sorted(mapping["rows"]["0001"].values()) == ["early", "late", "late#catch", "real"]
+    assert sorted(mapping["rows"]["x01"].values()) == ["early", "late"]  # no lettered recording on that row
+    assert mapping["reference_rows"] == {"x01": {"anchor_id": "0002", "source": str((anchor / "audio" / "0002.wav").resolve())}}
+    reference, _ = sf.read(str(output / "tracks" / "x01" / "reference.wav"), dtype="float32")
+    assert rms_dbfs(reference) == pytest.approx(mapping["levelling"]["target_rms_dbfs"], abs=0.05)
+    page = (output / "index.html").read_text(encoding="utf-8")
+    row = page.split('id="row-x01"', 1)[1]
+    assert page_module.REFERENCE_LABEL in row and 'src="tracks/x01/reference.wav"' in row
+    assert page.count("reference.wav") == 1 and page.count(page_module.REFERENCE_NOTE.split("'")[0]) == 1
+    # The lettered tracks of that row carry every question, the word question included; the reference carries none.
+    assert row.count('data-row="x01" data-letter="A" data-field="content"') == 1
+    assert 'data-letter="C"' not in row.split('data-field="memo"', 1)[0]
+
+
+def test_reference_rows_need_their_conditions(page_module, tmp_path):
+    with pytest.raises(SystemExit, match="needs --anchor and --short-axes"):
+        _reference_page(page_module, tmp_path / "a")
+    with pytest.raises(SystemExit, match="has its own recording"):
+        _reference_page(page_module, tmp_path / "b", ["--short-axes"], reference={"0001": "0002"})
+    with pytest.raises(SystemExit, match="has no '0009'"):
+        _reference_page(page_module, tmp_path / "c", ["--short-axes"], reference={"x01": "0009"})
+    with pytest.raises(SystemExit, match="not present in every system"):
+        _reference_page(page_module, tmp_path / "d", ["--short-axes"], reference={"x02": "0002"}, ids=("0001", "x02"))

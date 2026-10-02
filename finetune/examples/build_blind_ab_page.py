@@ -208,6 +208,13 @@ PEAK_GUARD_DBFS = -1.0
 # it in silence.
 LEVEL_FLOOR_DBFS = TARGET_RMS_DBFS - 6.0
 ANCHOR_NAME = "real"
+# A row without a recording of its own sentence (--reference-rows) shows another sentence's recording openly,
+# with no letter and no question: a speaker and sound-quality reference, not a track to judge.
+REFERENCE_LABEL = "참고 음성(다른 문장)"
+REFERENCE_NOTE = (
+    "이 행에는 같은 문장의 실제 녹음이 없습니다. '참고 음성'은 같은 화자가 다른 문장을 읽은 녹음이고, "
+    "화자 · 음질을 참고하는 용도입니다(문항 없음). 글자 트랙의 낱말 문항은 위에 보이는 문장과 비교해 답해 주십시오."
+)
 _LETTERS = "ABCDEFGH"
 
 
@@ -475,6 +482,14 @@ def _render_minimal_page(
         </div>"""
             for letter in letters
         )
+        if row.get("reference"):
+            # Only on a row named by --reference-rows; every other row keeps its bytes.
+            tracks = f"""
+        <div class="track reference">
+          <div class="letter">{html.escape(REFERENCE_LABEL)}</div>
+          <p class="reference-note">{html.escape(REFERENCE_NOTE)}</p>
+          <audio controls preload="none" src="tracks/{row_id}/reference.wav"></audio>
+        </div>""" + tracks
         blocks.append(
             f"""
       <section class="row" id="row-{row_id}">
@@ -689,8 +704,20 @@ def main(argv: list[str] | None = None) -> int:
             "letters. Rows it does not name keep the random letters."
         ),
     )
+    parser.add_argument(
+        "--reference-rows",
+        type=Path,
+        help=(
+            "JSON {row: anchor_id} for rows that have no recording of their own sentence. With "
+            "--anchor and --short-axes only. Such a row shows the anchor's recording of anchor_id "
+            "openly as a speaker and sound-quality reference (no letter, no question); its lettered "
+            "tracks are the scored systems alone."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.reference_rows and not (args.anchor and args.short_axes):
+        raise SystemExit("--reference-rows needs --anchor and --short-axes.")
     if args.click_axis and not args.short_axes:
         raise SystemExit("--click-axis belongs to the short page; use it with --short-axes.")
     if (args.pitch_axis or args.noise_axis) and not args.short_axes:
@@ -735,10 +762,27 @@ def main(argv: list[str] | None = None) -> int:
             if (stripped := line.strip()) and not stripped.startswith("#")
         ]
 
+    reference_rows: dict[str, str] = {}
+    if args.reference_rows:
+        reference_rows = json.loads(args.reference_rows.read_text(encoding="utf-8"))
+        for row, reference in reference_rows.items():
+            if row in systems[ANCHOR_NAME]:
+                raise SystemExit(f"--reference-rows: {row!r} has its own recording in the anchor")
+            if reference not in systems[ANCHOR_NAME]:
+                raise SystemExit(f"--reference-rows: the anchor has no {reference!r} for {row!r}")
+    # A reference row counts as present in the anchor through its reference recording.
+    available = {
+        name: ({**ids, **{row: ids[ref] for row, ref in reference_rows.items()}} if name == ANCHOR_NAME else ids)
+        for name, ids in systems.items()
+    }
+
     seed_bytes = os.urandom(32)
-    row_ids = choose_rows(systems, required, args.rows, seed_bytes)
+    row_ids = choose_rows(available, required, args.rows, seed_bytes)
     if not row_ids:
         raise SystemExit("no rows are shared by every system")
+    absent = sorted(set(reference_rows) - set(row_ids))
+    if absent:
+        raise SystemExit("--reference-rows names rows that are not on the page: " + ", ".join(absent))
 
     output = args.output
     if output.exists() and any(output.iterdir()):
@@ -762,7 +806,7 @@ def main(argv: list[str] | None = None) -> int:
     # one level and that level depends on every clip it is about to write.
     row_names: dict[str, list[str]] = {}
     for row in row_ids:
-        names = list(systems)
+        names = [name for name in systems if not (row in reference_rows and name == ANCHOR_NAME)]
         if row in catch_rows and scored_names:
             duplicate = args.catch_system or min(
                 scored_names, key=lambda name: _digest(seed_bytes, f"catch\0{row}\0{name}")
@@ -788,6 +832,8 @@ def main(argv: list[str] | None = None) -> int:
         for row, names in row_names.items()
         for name in names
     }
+    for row, reference in reference_rows.items():
+        crests[f"{row}/reference"] = crest_factor_db(systems[ANCHOR_NAME][reference])
     target_rms_dbfs, limited_by = page_target_rms_dbfs(crests)
     # With that target the guard is mathematically idle. It is still recorded,
     # because a fired guard would mean the target was computed from clips other
@@ -814,7 +860,12 @@ def main(argv: list[str] | None = None) -> int:
             samples, sample_rate = levelled(systems[source_name][row], target_rms_dbfs)
             sf.write(str(destination / f"{letter}.wav"), samples, sample_rate, subtype="PCM_16")
         mapping[row] = {letter: name for name, letter in letters.items()}
-        page_rows.append({"id": row, "letters": list(letters.values()), "text": texts.get(row, "")})
+        page_row = {"id": row, "letters": list(letters.values()), "text": texts.get(row, "")}
+        if row in reference_rows:
+            samples, sample_rate = levelled(systems[ANCHOR_NAME][reference_rows[row]], target_rms_dbfs)
+            sf.write(str(destination / "reference.wav"), samples, sample_rate, subtype="PCM_16")
+            page_row["reference"] = True
+        page_rows.append(page_row)
         row_widths.add(len(letters))
 
     page_key = args.page_key or output.name
@@ -906,6 +957,17 @@ def main(argv: list[str] | None = None) -> int:
                 "rows": mapping,
                 # Only when --row-letters was given, so a default mapping is unchanged.
                 **({"fixed_letter_rows": sorted(fixed_letters)} if fixed_letters else {}),
+                # Only with --reference-rows: the open reference of each such row, never a lettered track.
+                **(
+                    {
+                        "reference_rows": {
+                            row: {"anchor_id": ref, "source": str(systems[ANCHOR_NAME][ref].resolve())}
+                            for row, ref in sorted(reference_rows.items())
+                        }
+                    }
+                    if reference_rows
+                    else {}
+                ),
             },
             ensure_ascii=False,
             indent=1,
