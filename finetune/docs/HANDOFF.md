@@ -1,7 +1,7 @@
 # 인계 — 새 환경에서 셋업하고 이어가기
 
 **대상 브랜치**: `main` (2026-09-27에 `feat/training-core-remedy-b`를 머지하고 그 브랜치를 지웠다)
-**갱신일**: 2026-09-27
+**갱신일**: 2026-10-03
 
 이 문서는 **"어디서 무엇을 깔고, 무엇을 먼저 읽고, 무엇이 저장소 밖에 있는가"** 만 다룬다.
 진행 상태·판정·결정의 정본은 [로드맵](roadmap/README.md)이고,
@@ -9,13 +9,13 @@
 
 ---
 
-## 1. 지금 어디인가 (2026-10-02 기준)
+## 1. 지금 어디인가 (2026-10-03 기준)
 
 | 단계 | 상태 | 로드맵 |
 |---|---|---|
 | M0 / G0 환경 확정 | ✅ 통과 (2026-09-04, RTX 5090) | [02-milestones.md](roadmap/02-milestones.md) M0 |
 | M1 JA 프론트엔드 | 코드 완료. G1(c)는 자동 스크린으로 대체(사용자 결정) | M1, 이 문서 부록 §6.4 |
-| M2 데이터 준비 | ✅ 통과 (2026-09-04) — `ja-spkA-v2` · `ja-jsut-v1` · `ko-spkA-v1b`. 다음 학습부터 `ja-spkA-v3`(전사 30행 교정, §3.38–§3.39. 2026-09-29에 읽기 교정 1건을 lexicon으로 더해 다시 준비했고 분할은 같다). 2026-09-27부터 `prepare`가 변환 클리핑을 거부한다(C28, 게인 0이면 기존 자료판과 같다). `ko-spkA-v1b`의 입력(−3 dB 사본)은 게인 0으로 통과한다. KO를 무가공 원본에서 다시 준비하면 `--input-gain-db -1.6`이 필요하고 검증셋이 바뀐다 — KO 재개 때 정한다 | M2 |
+| M2 데이터 준비 | ✅ 통과 (2026-09-04) — `ja-spkA-v2` · `ja-jsut-v1` · `ko-spkA-v1b`. J5부터 `ja-spkA-v3`(J1–J4는 v2. 전사 30행 교정, §3.38–§3.39. 2026-09-29에 읽기 교정 1건을 lexicon으로 더해 다시 준비했고 분할은 같다). 2026-09-27부터 `prepare`가 변환 클리핑을 거부한다(C28, 게인 0이면 기존 자료판과 같다). `ko-spkA-v1b`의 입력(−3 dB 사본)은 게인 0으로 통과한다. KO를 무가공 원본에서 다시 준비하면 `--input-gain-db -1.6`이 필요하고 검증셋이 바뀐다 — KO 재개 때 정한다 | M2 |
 | M3 stage-1 (JSUT) | 학습 완료, 그 export와 체크포인트에서 stage-2 진행(G3 판정 줄은 로드맵에 따로 없음) | M3 |
 | M4 / G4 청취 | ❌ **미통과** — 링잉(R16)이 남아 있다 | M4, [10-risks.md](roadmap/10-risks.md) R16 |
 | 링잉 대응 | 라운드 1차 ~ J7 · B1 · B2까지 진행. **채택된 처방 없음.** J3가 링잉 감소 후보(연구 기준)이고, 발음 · 음높이 품질 회복은 미완 | [README 현재 상태](roadmap/README.md), §3.1–§3.42 |
@@ -23,7 +23,7 @@
 | M6 KO 적응 + 배포 패키징 | 미착수 (C12 미완) | M6 |
 
 **마지막 라운드**: J7(2026-10-02) — J5a에서 판별기 출발점만 fresh로 바꾼 한 런(`init_from_discriminator: fresh`, C32). "보존만" · 미채택이고, 2026-10-03에 확정했다(요약: 종합 품질 · 음높이 회복이 정체됐다, §3.42). 음높이는 세 행 모두 2였고, 링잉은 J5a와 같았다. 그 전 J6(clipping 두 후보)는 "그 밖" · 미채택으로 확정했고, clipping 탐색은 마무리했다(§3.41).
-J1 · J5a · J5b(와 J3)는 서로 다른 비교 기준으로 보존한다([README 기준 런](roadmap/README.md)). 보조 비교 B2는 미결이다(§3.37).
+J1 · J5a · J5b · J7(과 J2 · J3)는 서로 다른 비교 기준으로 보존한다([README 기준 런](roadmap/README.md)). 보조 비교 B2는 미결이다(§3.37).
 
 **다음 하나**: 사전 선언대로 **Q7 파일럿 Q7B-1**이 다음 우선순위다([Q7 설계 v0.2](roadmap/11-q7-ja-pretraining-design.md)). 실행 계획 · GPU 예산 · 교사 합성 자료 사용은 사용자 승인 뒤에만 연다. 평가 확장 10문장은 사용자 검토 뒤 봉인하고, 그 뒤 교사 학습 목록을 고정한다.
 새 세션은 사용자 결정 없이 새 학습·청취 라운드를 시작하지 않는다.
@@ -78,6 +78,7 @@ INFLECT_TEST_BASE_MODEL=micro pytest -k inventory -p no:warnings
 - 데이터셋 마운트(부록 §6.2): `wsl.exe -d Ubuntu-24.04 -u root -- bash -lc "mkdir -p <nas-mount> && mount -t drvfs <nas-drive>: <nas-mount>"`.
   9p라 느리므로(≈53 files/s) 학습·prepare는 `<work-dir>/data/` 로컬 복제본에서만 한다.
 - GPU 작업은 한 번에 하나만 돌린다.
+- 같은 GPU를 `<prior-ja-project>`가 나눠 쓴다. `<lease-file>`이 있으면 GPU를 쓰는 작업(학습 · 렌더 · 채점)을 시작하지 않는다. lease 중에는 CPU 실행도 torch가 GPU 장치를 열어 멈춘 적이 있어(§3.35), torch를 불러오는 작업도 기다린다. 이미 도는 작업은 보유 세션의 동의를 받아 후처리만 잇는다(§3.41).
 
 ### 3.2 Linux (GPU 없음) — 코드·테스트·문서
 
@@ -136,11 +137,11 @@ pytest
 ## 5. 이어가기 전에 읽을 것 (순서)
 
 1. 이 문서 §1–§2.
-2. [로드맵 목차](roadmap/README.md)의 "현재 상태" → [08-joint-adaptation.md](roadmap/08-joint-adaptation.md)(§3.33–§3.39) → [10-risks.md](roadmap/10-risks.md) R16 → §8.
+2. [로드맵 목차](roadmap/README.md)의 "현재 상태" → [08-joint-adaptation.md](roadmap/08-joint-adaptation.md)(§3.33–§3.42) → [11-q7-ja-pretraining-design.md](roadmap/11-q7-ja-pretraining-design.md)(다음 하나) → [10-risks.md](roadmap/10-risks.md) R16 → §8.
 3. 이 문서 부록 §6.4 **"인계받는 사람이 먼저 알아야 할 것"** — `export --package-template micro` 필수, `--min/--max-duration-seconds`는
    필터가 아니라 단언, `max_steps`가 run identity에 들어가 `--resume` 연장은 거부된다(전체 상태를 이어 연장하려면 `--branch-from`, 새 레시피는 `--init-from`, TRAINING.md), 등.
 4. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — 링잉 계측의 한계(짧은 창의 수치, 비율 대 절대 레벨)가 정리돼 있다. 측정할 수 없으면 아무것도 보고하지 않는 규칙은 TRAINING.md에 있다.
-5. [TRAINING.md](TRAINING.md) — 개선안 b의 옵션(전부 기본 off), `--init-from`, `--discriminator-update-order`의 의미.
+5. [TRAINING.md](TRAINING.md) — 개선안 b의 옵션(전부 기본 off), `--init-from`과 `--init-from-discriminator`, `--discriminator-update-order`, 모듈별 gradient clipping, `grad-norms.jsonl`의 의미, 청취 페이지 빌더의 옵션.
 
 **작업 규칙** (로드맵이 지켜온 것):
 - 게이트와 판정 규칙은 **데이터를 보기 전에** 고정하고 커밋한다.
@@ -304,7 +305,7 @@ G4 라운드에서 발음 결함이 나오면 여기를 먼저 의심한다.
   `--checkpoint`로 바꿔가며 `validation.jsonl`을 넘기면 전 후보가 같은 실물 수치를 낸다.
 - **`max_steps`는 run identity에 들어간다**(`_public_options`가 제외하는 것은
   `base_model/prepared_dir/output_dir/preset/resume`뿐). 스텝 수를 바꾼 `--resume`은 거부되므로
-  학습 연장은 export → `--base` 체이닝으로 새 run을 만드는 것뿐이다. *(2026-09-27 보완: 이제 `--branch-from`으로 전체 상태를 이어받아 연장할 수 있다. 셔플 순서만 분기점에서 다시 시작된다.)*
+  학습 연장은 export → `--base` 체이닝으로 새 run을 만드는 것뿐이다. *(2026-09-27 보완: 이제 `--branch-from`으로 전체 상태를 이어받아 연장할 수 있다. 셔플 순서만 분기점에서 다시 시작된다.)* *(2026-10-03 보완: `_public_options`는 `branch_from` · `init_from`도 제외한다. 두 값은 머신 경로라서, 가중치는 identity의 `branch` · `init` 블록이 sha로 묶는다.)*
 - `metrics.jsonl`에는 **타임스탬프도 검증 loss도 없다.** 벽시계는 로그로 재고, 체크포인트 선택은
   `evaluate` + 청취로 한다.
 - **알려진 G2P 한계는 `docs/LANGUAGES.md`에 언어별로 정리돼 있다** — 예를 들어

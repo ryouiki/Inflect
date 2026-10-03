@@ -100,10 +100,11 @@ class TrainingOptions:
     # A training checkpoint from *another* run to continue in a new output
     # directory, carrying its full state. See `_establish_branch_identity`.
     branch_from: str | Path | None = None
-    # A training checkpoint whose generator and discriminator *weights* start a
-    # new run. Nothing else is taken from it -- no optimizer, scheduler, scaler,
-    # step or RNG state -- so this is a new recipe that begins where another
-    # run's weights ended, not a continuation. See `_init_block`.
+    # A training checkpoint whose generator and (unless init_from_discriminator
+    # is "fresh") discriminator *weights* start a new run. Nothing else is taken
+    # from it -- no optimizer, scheduler, scaler, step or RNG state -- so this is
+    # a new recipe that begins where another run's weights ended, not a
+    # continuation. See `_load_init_weights`.
     init_from: str | Path | None = None
     device: str = "auto"
     seed: int = 1234

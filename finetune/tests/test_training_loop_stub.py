@@ -1181,7 +1181,9 @@ def test_grad_norms_record_what_each_clip_returned(
 def test_grad_norms_hold_null_where_no_clip_ran(
     corpus: Corpus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Null means the module had no clip call that step; the generator always has one."""
+    """Null means no norm was measured for the module that step (a discriminator idle in a
+    reconstruction-only polish); a module whose clip is off still records one. The generator
+    always has a value."""
 
     run = tmp_path / "run"
     recon = {"decoder_polish_mode": "recon", "posterior_warmup_steps": 0, "decoder_unfreeze_step": 0}

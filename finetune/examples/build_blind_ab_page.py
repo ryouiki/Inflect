@@ -8,12 +8,16 @@ What the page enforces, and why each one exists:
 
 * **Fresh random labels per row.** Letters come from `os.urandom`, and a letter
   means a different system in every row. Tallying letters across rows therefore
-  tallies noise; the arm lives only in `mapping.json`.
+  tallies noise; the arm lives only in `mapping.json`. Rows named by
+  `--row-letters` take the letters a round's rule chose instead, and
+  `mapping.json` lists them under `fixed_letter_rows`.
 * **A sealed mapping.** `mapping.json` sits at the output root and the page never
   links to it. Score first, join afterwards with `tally_verdict.py`.
 * **A real-audio anchor.** Without a recording on the page there is no way to
   tell "both systems are poor" from "this material is hard". The anchor is
-  forced onto every row it exists for.
+  forced onto every row it exists for. A row with no recording of its own
+  sentence can show another sentence's recording openly with `--reference-rows`
+  (no letter, no question; `reference_rows` in `mapping.json`).
 * **One level for the whole page.** Every clip is scaled by pure gain to the
   same RMS, so loudness cannot stand in for quality. The target is the loudest
   one *every* track can reach without its own peak passing the guard, decided
@@ -709,9 +713,10 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help=(
             "JSON {row: anchor_id} for rows that have no recording of their own sentence. With "
-            "--anchor and --short-axes only. Such a row shows the anchor's recording of anchor_id "
-            "openly as a speaker and sound-quality reference (no letter, no question); its lettered "
-            "tracks are the scored systems alone."
+            "--anchor and --short-axes only, and --texts must give each such row its sentence, "
+            "because the word question is answered against it. Such a row shows the anchor's "
+            "recording of anchor_id openly as a speaker and sound-quality reference (no letter, no "
+            "question); its lettered tracks are the scored systems alone."
         ),
     )
     parser.add_argument("--output", type=Path, required=True)
@@ -783,6 +788,9 @@ def main(argv: list[str] | None = None) -> int:
     absent = sorted(set(reference_rows) - set(row_ids))
     if absent:
         raise SystemExit("--reference-rows names rows that are not on the page: " + ", ".join(absent))
+    untexted = sorted(row for row in reference_rows if not texts.get(row))
+    if untexted:
+        raise SystemExit("--reference-rows needs --texts with a sentence for: " + ", ".join(untexted))
 
     output = args.output
     if output.exists() and any(output.iterdir()):

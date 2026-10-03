@@ -867,16 +867,23 @@ def test_the_short_page_is_unchanged_without_reference_rows(page_module, tmp_pat
     assert _built(old, tmp_path, "old", extra, monkeypatch) == _built(page_module, tmp_path, "new", extra, monkeypatch)
 
 
-def _reference_page(page_module, tmp_path, extra=(), reference=None, ids=("0001", "x01")):
+SENTENCES = {"0001": "First sentence.", "x01": "A sentence with no recording of its own."}
+
+
+def _reference_page(page_module, tmp_path, extra=(), reference=None, ids=("0001", "x01"), texts=SENTENCES):
     first = evaluate_output(tmp_path, "early", ["0001", "x01"], 0.2)
     second = evaluate_output(tmp_path, "late", ["0001", "x01"], 0.3)
     anchor = evaluate_output(tmp_path, "anchor", ["0001", "0002"], 0.05)
     (tmp_path / "ids.txt").write_text("\n".join(ids) + "\n", encoding="utf-8")
     (tmp_path / "reference.json").write_text(json.dumps(reference or {"x01": "0002"}), encoding="utf-8")
+    (tmp_path / "texts.jsonl").write_text(
+        "".join(json.dumps({"id": row, "text": text}) + "\n" for row, text in texts.items()), encoding="utf-8"
+    )
     output = tmp_path / f"page-{len(list(tmp_path.glob('page-*')))}"
     code = page_module.main(
         ["--system", f"early={first}", "--system", f"late={second}", "--anchor", str(anchor),
          "--must-include-ids", str(tmp_path / "ids.txt"), "--rows", "2", "--catch-rows", "1", "--catch-system", "late",
+         "--texts", str(tmp_path / "texts.jsonl"),
          "--reference-rows", str(tmp_path / "reference.json"), *extra, "--output", str(output)]
     )
     return code, output, anchor
@@ -894,6 +901,7 @@ def test_a_reference_row_shows_another_sentences_recording_openly_and_letters_on
     page = (output / "index.html").read_text(encoding="utf-8")
     row = page.split('id="row-x01"', 1)[1]
     assert page_module.REFERENCE_LABEL in row and 'src="tracks/x01/reference.wav"' in row
+    assert SENTENCES["x01"] in row  # the word question is answered against the sentence on the page
     assert page.count("reference.wav") == 1 and page.count(page_module.REFERENCE_NOTE.split("'")[0]) == 1
     # The lettered tracks of that row carry every question, the word question included; the reference carries none.
     assert row.count('data-row="x01" data-letter="A" data-field="content"') == 1
@@ -909,3 +917,5 @@ def test_reference_rows_need_their_conditions(page_module, tmp_path):
         _reference_page(page_module, tmp_path / "c", ["--short-axes"], reference={"x01": "0009"})
     with pytest.raises(SystemExit, match="not present in every system"):
         _reference_page(page_module, tmp_path / "d", ["--short-axes"], reference={"x02": "0002"}, ids=("0001", "x02"))
+    with pytest.raises(SystemExit, match="needs --texts with a sentence for: x01"):
+        _reference_page(page_module, tmp_path / "e", ["--short-axes"], texts={"0001": "First sentence."})

@@ -1,7 +1,8 @@
 """Starting a new recipe from another run's weights, and training the acoustic path alone.
 
 `--init-from` takes the generator and discriminator weights of a training
-checkpoint and nothing else, so the optimizer starts empty at step 0. The
+checkpoint (the generator alone with `init_from_discriminator='fresh'`) and
+nothing else, so the optimizer starts empty at step 0. The
 `posterior_decoder` polish mode trains the posterior encoder and the decoder
 together and holds the text side. These tests run the real loop on the stub
 release: a short parent, a run started from its weights, and the ways such a

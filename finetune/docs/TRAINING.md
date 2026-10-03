@@ -353,7 +353,11 @@ starts, and its optimizer starts empty as usual. `init-check.json` then compares
 the discriminator with a copy taken when it was built and records its source as
 `fresh`; `run-identity.json` lists it under `not_inherited`. A resume of such a
 run restores the discriminator from its own checkpoint and does not build a new
-one. The option is refused without `--init-from`.
+one. The option is refused without `--init-from`. A run started this way cannot
+be branched: a branch has to repeat the parent's `init_from_discriminator`, that
+setting is refused without `--init-from`, and a branch does not take
+`--init-from`. A larger budget for such a run means a new `--init-from` run with
+the larger `--max-steps`.
 
 `decoder_polish_mode=posterior_decoder` trains the posterior encoder and the
 decoder together during the polish stage and holds `enc_p`, `dp` and `flow`;
@@ -366,6 +370,12 @@ warm-up and unfreeze steps:
  "decoder_polish_mode": "posterior_decoder", "kl_loss_weight": 0.0,
  "duration_loss_weight": 0.0}
 ```
+
+`decoder_polish_mode=posterior_decoder_recon` trains the same two groups without
+the discriminator: no adversarial or feature-matching term, no discriminator
+update, and the discriminator's scheduler does not advance (the older `recon`
+mode advances it, because its saved runs did). On those steps
+`grad-norms.jsonl` holds `null` for the discriminator.
 
 With the KL term at zero nothing ties the posterior to the text prior any more,
 so a run like this is a reconstruction experiment. Its checkpoint is not a
@@ -658,6 +668,25 @@ scoring and tallying are separate steps; a letter tallied directly is noise.
 byte-identical audio are the option steps between that one pair -- a fact
 about that pair, not the round's noise floor and not a bound on how much any
 other contrast could have varied.
+
+The page above is the long default. `--minimal-axes` (naturalness, ringing and
+clarity per track, one optional memo per row) and `--short-axes` (ringing and
+missing or mushy words per track, one optional memo per row) are shorter forms;
+`--short-axes` also takes `--pitch-axis`, `--speaker-axis` and one of
+`--click-axis` or `--noise-axis`, and on the long page `--speaker-axis` and
+`--clarity-axis` each add one question per track. A page built without these
+flags is the same page byte for byte. Two options depart from the defaults
+described above. `--row-letters FILE` (`{row: {track: letter}}`; a duplicate is
+`NAME#catch`; each named row uses the first N letters) fixes the letters of the
+rows it names, for a round whose rule keeps re-heard tracks off their earlier
+letters; the other rows keep random letters, and the sealed mapping lists the
+named rows under `fixed_letter_rows`. `--reference-rows FILE` (`{row:
+anchor_id}`; needs `--anchor`, `--short-axes` and `--texts`) is for a row that
+has no recording of its own sentence: it shows the anchor's recording of another
+sentence openly, as a speaker and sound-quality reference with no letter and no
+question, the lettered tracks are the scored systems alone, the word question is
+answered against the sentence shown from `--texts`, and the mapping records the
+reference under `reference_rows`.
 
 Score one round at a time. Absolute scores drift between sessions, so only
 contrasts inside a single page are comparable, and none of this is MOS.

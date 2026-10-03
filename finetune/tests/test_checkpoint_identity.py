@@ -291,7 +291,8 @@ class _ToyGenerator(nn.Module):
 
 # The ten settings the comb remedy added to TrainingOptions, and so to the
 # public options block of every run identity, plus the discriminator update
-# order added after them.
+# order, the four per-module clipping settings (C31) and init_from_discriminator
+# (C32) added after them.
 _NEW_OPTION_FIELDS = (
     "adversarial_gating",
     "warmup_adversarial_gating",
@@ -363,8 +364,9 @@ def _resume(path: Path, parts: tuple, identity: dict, **extra) -> tuple[int, int
 
 
 def test_public_options_pin_the_comb_remedy_settings_at_the_previous_behaviour() -> None:
-    """These eleven values (the ten comb-remedy settings and the discriminator update
-    order) are part of every run's identity, and they must stay these.
+    """These sixteen values (the ten comb-remedy settings, the discriminator update
+    order, the four per-module clipping settings and init_from_discriminator) are part
+    of every run's identity, and they must stay these.
 
     Each one reproduces what runs did before it existed, so a default that moves
     changes what an unchanged command line trains, silently. Pinning them here

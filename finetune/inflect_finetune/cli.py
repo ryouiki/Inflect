@@ -170,7 +170,8 @@ def _add_train(subparsers: Any) -> None:
         type=_path,
         help=(
             "A training checkpoint whose generator and discriminator weights start this "
-            "new run. Its optimizer, scheduler, scaler, RNG state and step are not used."
+            "new run (the generator alone with --init-from-discriminator fresh). Its "
+            "optimizer, scheduler, scaler, RNG state and step are not used."
         ),
     )
     parser.add_argument(
