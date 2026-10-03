@@ -156,7 +156,13 @@ a render of the same sentence reaches +16.3, so the separation is wide but the
 `steady_tone_artifact_score` separated the same two sets completely, 29.9
 against 0.00. `clips_f0_locked_to_frame_grid` counts clips where the pitch
 tracker reported the comb as the voice; one failing checkpoint scored 134 of
-160 there. The training run also writes the two cheap screens into each
+160 there. *(Correction, 2026-10-03: the count takes any pitch within 1.5 Hz of
+93.75, 187.5 or 281.25 Hz -- `f0_grid_deviation_hz(max_multiple=3)` -- and the
+two upper multiples fall inside real voices. Recounted by multiple, the
+Korean failing runs are almost all genuine 93.75 Hz locks, but 42 of the 45
+JSUT "locks" sit at 187.5 Hz, inside JSUT's own range, and 8 of the 10 locks of
+one speaker-A run on JSUT text sit at 281.25 Hz. Read a lock count together
+with the median pitch it was taken from.)* The training run also writes the two cheap screens into each
 `validation/step-*.json`, so the arrival can be dated to within a validation
 interval instead of discovered at the end.
 
