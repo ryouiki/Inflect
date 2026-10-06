@@ -919,3 +919,63 @@ def test_reference_rows_need_their_conditions(page_module, tmp_path):
         _reference_page(page_module, tmp_path / "d", ["--short-axes"], reference={"x02": "0002"}, ids=("0001", "x02"))
     with pytest.raises(SystemExit, match="needs --texts with a sentence for: x01"):
         _reference_page(page_module, tmp_path / "e", ["--short-axes"], texts={"0001": "First sentence."})
+
+
+def _old_builder(tmp_path, commit):
+    repo = EXAMPLE.parents[1]
+    source = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:finetune/examples/build_blind_ab_page.py"],
+                            capture_output=True, text=True, check=True).stdout
+    old_file = tmp_path / f"build_blind_ab_page_{commit}.py"
+    old_file.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(f"_blind_ab_page_{commit}", old_file)
+    old = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(old)
+    return old
+
+
+def test_pages_are_unchanged_without_the_expression_axis(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder before --expression-axis (commit c176d6b) wrote: a short page with every other
+    short-page axis, and a page with an open reference row and its sentences."""
+    old = _old_builder(tmp_path, "c176d6b")
+    extra = ["--pitch-axis", "--noise-axis", "--speaker-axis"]
+    assert _built(old, tmp_path, "old", extra, monkeypatch) == _built(page_module, tmp_path, "new", extra, monkeypatch)
+    pages = []
+    for name, module in (("old-ref", old), ("new-ref", page_module)):
+        monkeypatch.setattr(module.os, "urandom", lambda count: bytes(range(count)))
+        code, output, _ = _reference_page(module, tmp_path / name, ["--short-axes", *extra])
+        assert code == 0
+        pages.append(((output / "index.html").read_bytes(),
+                      (output / "mapping.json").read_text(encoding="utf-8").replace(str(tmp_path / name), "<tmp>")))
+    assert pages[0] == pages[1]
+
+
+def test_the_expression_axis_joins_the_short_page_last(page_module, tmp_path, monkeypatch):
+    monkeypatch.setattr(page_module.os, "urandom", lambda count: bytes(range(count)))
+    code, output, _ = _reference_page(page_module, tmp_path, ["--short-axes", "--pitch-axis", "--noise-axis", "--speaker-axis",
+                                                              "--expression-axis"])
+    assert code == 0
+    text = (output / "index.html").read_text(encoding="utf-8")
+    tracks = text.count('data-field="ringing"')
+    assert tracks == text.count('data-field="expression"') == text.count('data-field="speaker"') == 6  # 4 + 2 tracks
+    first_track = text[text.index('data-field="ringing"'):]
+    order = [first_track.index(f'data-field="{field}"') for field in ("pitch", "content", "noise", "speaker", "expression")]
+    assert order == sorted(order)
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert list(axes) == ["ringing", "pitch", "content", "noise", "memo", "levelling", "speaker", "expression"]
+    assert axes["expression"] == page_module.EXPRESSION_AXIS
+    assert axes["expression"]["options"] == ["예", "아니오", "판단 어려움"]
+    assert load_tally().axis_names(axes) == ("ringing", "speaker", "content", "pitch", "noise", "expression")
+    # the open reference carries no question, the expression question included
+    reference = text.split('class="track reference"', 1)[1].split('<div class="track">', 1)[0]
+    assert "reference.wav" in reference and "data-field" not in reference
+
+
+def test_the_expression_axis_needs_the_short_page_and_the_texts(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="expression-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--expression-axis", "--output", str(tmp_path / "round")])
+    with pytest.raises(SystemExit, match="expression-axis"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--expression-axis",
+                          "--output", str(tmp_path / "round2")])

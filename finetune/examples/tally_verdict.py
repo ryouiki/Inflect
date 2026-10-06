@@ -38,7 +38,8 @@ import json
 import statistics
 from pathlib import Path
 
-KNOWN_AXES = ("quality", "defect", "language", "ringing", "speaker", "clarity", "content", "click", "pitch", "noise")
+KNOWN_AXES = ("quality", "defect", "language", "ringing", "speaker", "clarity", "content", "click", "pitch", "noise",
+              "expression")
 FORCED = ("most_natural", "most_blurred")
 ROW_TEXT = ("comment", "ring_detail", "ring_order", "memo")
 

@@ -183,6 +183,15 @@ NOISE_AXIS = {
     "question": "클릭 · 끊김 · 자글거림 같은 짧은 잡음이 있는가",
     "options": ["없음", "있음"],
 }
+# Opt-in on the shortest page only (--short-axes --expression-axis, with --texts): whether the sentence
+# type the text calls for (question, exclamation, hesitation and so on) comes through. The pitch question
+# grades abnormal pitch events and leaves natural intonation out; this one asks about the sentence as
+# written. It sits after every other question, so a page without it keeps its bytes.
+EXPRESSION_AXIS = {
+    "label": "표현",
+    "question": "문장 유형(의문 · 감탄 · 머뭇거림 등)이 글에 맞게 들리는가",
+    "options": ["예", "아니오", "판단 어려움"],
+}
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -358,12 +367,13 @@ def render_page(
     click_axis: bool = False,
     pitch_axis: bool = False,
     noise_axis: bool = False,
+    expression_axis: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
     if minimal or short:
         return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis,
                                     speaker=short and speaker_axis, pitch=short and pitch_axis,
-                                    noise=short and noise_axis)
+                                    noise=short and noise_axis, expression=short and expression_axis)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -441,7 +451,7 @@ def _minimal_selects(row_id: str, letter: str) -> str:
 
 def _short_track(
     row_id: str, letter: str, click: bool = False, speaker: bool = False, pitch: bool = False,
-    noise: bool = False,
+    noise: bool = False, expression: bool = False,
 ) -> str:
     selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
     if pitch:
@@ -454,6 +464,8 @@ def _short_track(
     if speaker:
         # After the existing questions, so a page without it keeps their order and bytes.
         selects += _optional_select(SPEAKER_AXIS, "speaker", row_id, letter)
+    if expression:
+        selects += _optional_select(EXPRESSION_AXIS, "expression", row_id, letter)
     return f"""
         <div class="track">
           <div class="letter">{letter}</div>
@@ -463,14 +475,14 @@ def _short_track(
 
 def _render_minimal_page(
     page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False,
-    speaker: bool = False, pitch: bool = False, noise: bool = False,
+    speaker: bool = False, pitch: bool = False, noise: bool = False, expression: bool = False,
 ) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
         if short:
-            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise) for letter in letters)
+            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise, expression) for letter in letters)
         else:
             tracks = "".join(
             f"""
@@ -686,6 +698,14 @@ def main(argv: list[str] | None = None) -> int:
         help="With --short-axes only: ask yes/no for a short noise per track, in place of --click-axis.",
     )
     parser.add_argument(
+        "--expression-axis",
+        action="store_true",
+        help=(
+            "With --short-axes and --texts only: ask per track whether the sentence type the text calls for "
+            "(question, exclamation, hesitation) comes through; the last question on each track."
+        ),
+    )
+    parser.add_argument(
         "--minimal-axes",
         action="store_true",
         help=(
@@ -729,6 +749,9 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--pitch-axis and --noise-axis belong to the short page; use them with --short-axes.")
     if args.noise_axis and args.click_axis:
         raise SystemExit("--noise-axis replaces --click-axis; use one of them.")
+    if args.expression_axis and not (args.short_axes and args.texts):
+        raise SystemExit("--expression-axis belongs to the short page and is answered against the text; "
+                         "use it with --short-axes and --texts.")
     if args.short_axes and (args.minimal_axes or args.clarity_axis):
         # --speaker-axis may join the short page (a speaker question for a page that compares
         # different models); every other axis flag stays refused.
@@ -924,6 +947,9 @@ def main(argv: list[str] | None = None) -> int:
         axes["speaker"] = SPEAKER_AXIS
     if args.clarity_axis:
         axes["clarity"] = CLARITY_AXIS
+    if args.expression_axis:
+        # Last, so a page without it embeds exactly the axes it always did.
+        axes["expression"] = EXPRESSION_AXIS
     (output / "index.html").write_text(
         render_page(
             page_key,
@@ -937,6 +963,7 @@ def main(argv: list[str] | None = None) -> int:
             click_axis=args.click_axis,
             pitch_axis=args.pitch_axis,
             noise_axis=args.noise_axis,
+            expression_axis=args.expression_axis,
         ),
         encoding="utf-8",
     )

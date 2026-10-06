@@ -672,9 +672,12 @@ other contrast could have varied.
 The page above is the long default. `--minimal-axes` (naturalness, ringing and
 clarity per track, one optional memo per row) and `--short-axes` (ringing and
 missing or mushy words per track, one optional memo per row) are shorter forms;
-`--short-axes` also takes `--pitch-axis`, `--speaker-axis` and one of
-`--click-axis` or `--noise-axis`, and on the long page `--speaker-axis` and
-`--clarity-axis` each add one question per track. A page built without these
+`--short-axes` also takes `--pitch-axis`, `--speaker-axis`, one of
+`--click-axis` or `--noise-axis`, and `--expression-axis` (with `--texts`:
+whether the sentence type the text calls for -- question, exclamation,
+hesitation -- comes through; the last question on each track; the pitch
+question still leaves natural intonation out), and on the long page
+`--speaker-axis` and `--clarity-axis` each add one question per track. A page built without these
 flags is the same page byte for byte. Two options depart from the defaults
 described above. `--row-letters FILE` (`{row: {track: letter}}`; a duplicate is
 `NAME#catch`; each named row uses the first N letters) fixes the letters of the
