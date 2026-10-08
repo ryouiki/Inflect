@@ -676,7 +676,9 @@ missing or mushy words per track, one optional memo per row) are shorter forms;
 `--click-axis` or `--noise-axis`, and `--expression-axis` (with `--texts`:
 whether the sentence type the text calls for -- question, exclamation,
 hesitation -- comes through; the last question on each track; the pitch
-question still leaves natural intonation out), and on the long page
+question still leaves natural intonation out), or `--expression-only` (with
+`--texts`: that question alone and one optional memo per row, for a diagnosis of
+the sentence type that judges no quality), and on the long page
 `--speaker-axis` and `--clarity-axis` each add one question per track. A page built without these
 flags is the same page byte for byte. Two options depart from the defaults
 described above. `--row-letters FILE` (`{row: {track: letter}}`; a duplicate is

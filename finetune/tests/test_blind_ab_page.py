@@ -979,3 +979,42 @@ def test_the_expression_axis_needs_the_short_page_and_the_texts(page_module, tmp
     with pytest.raises(SystemExit, match="expression-axis"):
         page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--expression-axis",
                           "--output", str(tmp_path / "round2")])
+
+
+def test_pages_are_unchanged_by_the_expression_only_option(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder before --expression-only (commit 279f442) wrote, with the expression question too."""
+    old = _old_builder(tmp_path, "279f442")
+    for extra in (["--pitch-axis", "--noise-axis", "--speaker-axis"], ["--pitch-axis", "--noise-axis", "--speaker-axis", "--expression-axis"]):
+        pages = []
+        for name, module in ((f"old-{len(extra)}", old), (f"new-{len(extra)}", page_module)):
+            monkeypatch.setattr(module.os, "urandom", lambda count: bytes(range(count)))
+            code, output, _ = _reference_page(module, tmp_path / name, ["--short-axes", *extra])
+            assert code == 0
+            pages.append(((output / "index.html").read_bytes(),
+                          (output / "mapping.json").read_text(encoding="utf-8").replace(str(tmp_path / name), "<tmp>")))
+        assert pages[0] == pages[1]
+
+
+def test_the_expression_only_page_asks_one_question(page_module, tmp_path, monkeypatch):
+    monkeypatch.setattr(page_module.os, "urandom", lambda count: bytes(range(count)))
+    code, output, _ = _reference_page(page_module, tmp_path, ["--short-axes", "--expression-only"])
+    assert code == 0
+    text = (output / "index.html").read_text(encoding="utf-8")
+    assert text.count('data-field="expression"') == 6
+    for field in ("ringing", "content", "pitch", "noise", "speaker", "click"):
+        assert f'data-field="{field}"' not in text
+    assert text.count(f'<label class="free">{page_module.EXPRESSION_MEMO}') == 2
+    axes = json.loads((output / "mapping.json").read_text(encoding="utf-8"))["axes"]
+    assert list(axes) == ["expression", "memo", "levelling"] and axes["expression"] == page_module.EXPRESSION_AXIS
+    assert load_tally().axis_names(axes) == ("expression",)
+
+
+def test_the_expression_only_option_refuses_other_questions(page_module, tmp_path):
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    first = evaluate_output(tmp_path, "early", identifiers, 0.2)
+    with pytest.raises(SystemExit, match="expression-only"):
+        page_module.main(["--system", f"early={first}", "--rows", "2", "--short-axes", "--expression-only",
+                          "--output", str(tmp_path / "round")])
+    for flag in ("--pitch-axis", "--noise-axis", "--speaker-axis", "--expression-axis"):
+        with pytest.raises(SystemExit, match="alone"):
+            _reference_page(page_module, tmp_path / flag.strip("-"), ["--short-axes", "--expression-only", flag])

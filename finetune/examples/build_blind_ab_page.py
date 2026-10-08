@@ -192,6 +192,9 @@ EXPRESSION_AXIS = {
     "question": "문장 유형(의문 · 감탄 · 머뭇거림 등)이 글에 맞게 들리는가",
     "options": ["예", "아니오", "판단 어려움"],
 }
+# The memo of a page that asks the expression question alone (--expression-only): a diagnosis of the sentence
+# type, where every quality question is left out on purpose.
+EXPRESSION_MEMO = "메모 (선택) — 문장 유형이 어떻게 들렸는지(끝의 오르내림, 쉼 등)"
 # The ranking prompt has to name the number of tracks the row actually carries,
 # and a catch row carries one more than the others, so it is rendered per row
 # rather than fixed once. The four graded axes above stay fixed: they are what
@@ -368,12 +371,14 @@ def render_page(
     pitch_axis: bool = False,
     noise_axis: bool = False,
     expression_axis: bool = False,
+    expression_only: bool = False,
 ) -> str:
     """Return the standalone HTML page."""
     if minimal or short:
         return _render_minimal_page(page_key, rows, axes, note, short=short, click=short and click_axis,
                                     speaker=short and speaker_axis, pitch=short and pitch_axis,
-                                    noise=short and noise_axis, expression=short and expression_axis)
+                                    noise=short and noise_axis, expression=short and expression_axis,
+                                    expression_only=short and expression_only)
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
@@ -451,8 +456,15 @@ def _minimal_selects(row_id: str, letter: str) -> str:
 
 def _short_track(
     row_id: str, letter: str, click: bool = False, speaker: bool = False, pitch: bool = False,
-    noise: bool = False, expression: bool = False,
+    noise: bool = False, expression: bool = False, expression_only: bool = False,
 ) -> str:
+    if expression_only:
+        selects = _optional_select(EXPRESSION_AXIS, "expression", row_id, letter)
+        return f"""
+        <div class="track">
+          <div class="letter">{letter}</div>
+          <audio controls preload="none" src="tracks/{html.escape(row_id)}/{letter}.wav"></audio>{selects}
+        </div>"""
     selects = _optional_select(MINIMAL_RINGING_AXIS, "ringing", row_id, letter)
     if pitch:
         selects += _optional_select(PITCH_AXIS, "pitch", row_id, letter)
@@ -476,13 +488,15 @@ def _short_track(
 def _render_minimal_page(
     page_key: str, rows: list[dict], axes: dict, note: str, short: bool = False, click: bool = False,
     speaker: bool = False, pitch: bool = False, noise: bool = False, expression: bool = False,
+    expression_only: bool = False,
 ) -> str:
     blocks: list[str] = []
     for row in rows:
         letters = sorted(row["letters"])
         row_id = html.escape(row["id"])
         if short:
-            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise, expression) for letter in letters)
+            tracks = "".join(_short_track(row["id"], letter, click, speaker, pitch, noise, expression, expression_only)
+                             for letter in letters)
         else:
             tracks = "".join(
             f"""
@@ -512,7 +526,7 @@ def _render_minimal_page(
         <h2>{row_id}</h2>
         {f'<p class="text">{html.escape(row["text"])}</p>' if row.get("text") else ''}
         <div class="tracks">{tracks}</div>
-        <label class="free">{html.escape(PITCH_NOISE_MEMO if pitch or noise else MEMO)}
+        <label class="free">{html.escape(EXPRESSION_MEMO if expression_only else PITCH_NOISE_MEMO if pitch or noise else MEMO)}
           <textarea data-row="{row_id}" data-field="memo" data-optional="1" rows="2"></textarea>
         </label>
       </section>"""
@@ -706,6 +720,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--expression-only",
+        action="store_true",
+        help=(
+            "With --short-axes and --texts only: ask the expression question alone per track (no ringing, word or other "
+            "question) and one optional memo per row, for a diagnosis of the sentence type that judges no quality."
+        ),
+    )
+    parser.add_argument(
         "--minimal-axes",
         action="store_true",
         help=(
@@ -749,6 +771,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--pitch-axis and --noise-axis belong to the short page; use them with --short-axes.")
     if args.noise_axis and args.click_axis:
         raise SystemExit("--noise-axis replaces --click-axis; use one of them.")
+    if args.expression_only and not (args.short_axes and args.texts):
+        raise SystemExit("--expression-only belongs to the short page and is answered against the text; "
+                         "use it with --short-axes and --texts.")
+    if args.expression_only and (args.pitch_axis or args.noise_axis or args.click_axis or args.speaker_axis or args.expression_axis):
+        raise SystemExit("--expression-only asks the expression question alone; do not combine it with other axis flags.")
     if args.expression_axis and not (args.short_axes and args.texts):
         raise SystemExit("--expression-axis belongs to the short page and is answered against the text; "
                          "use it with --short-axes and --texts.")
@@ -950,6 +977,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.expression_axis:
         # Last, so a page without it embeds exactly the axes it always did.
         axes["expression"] = EXPRESSION_AXIS
+    if args.expression_only:
+        axes = {"expression": EXPRESSION_AXIS, "memo": EXPRESSION_MEMO, "levelling": axes["levelling"]}
     (output / "index.html").write_text(
         render_page(
             page_key,
@@ -964,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
             pitch_axis=args.pitch_axis,
             noise_axis=args.noise_axis,
             expression_axis=args.expression_axis,
+            expression_only=args.expression_only,
         ),
         encoding="utf-8",
     )
