@@ -231,6 +231,11 @@ REFERENCE_NOTE = (
     "이 행에는 같은 문장의 실제 녹음이 없습니다. '참고 음성'은 같은 화자가 다른 문장을 읽은 녹음이고, "
     "화자 · 음질을 참고하는 용도입니다(문항 없음). 글자 트랙의 낱말 문항은 위에 보이는 문장과 비교해 답해 주십시오."
 )
+# The expression-only page asks no word question, so its reference note leaves that sentence out.
+REFERENCE_NOTE_EXPRESSION_ONLY = (
+    "이 행에는 같은 문장의 실제 녹음이 없습니다. '참고 음성'은 같은 화자가 다른 문장을 읽은 녹음이고, "
+    "화자 · 음질을 참고하는 용도입니다(문항 없음)."
+)
 _LETTERS = "ABCDEFGH"
 
 
@@ -517,7 +522,7 @@ def _render_minimal_page(
             tracks = f"""
         <div class="track reference">
           <div class="letter">{html.escape(REFERENCE_LABEL)}</div>
-          <p class="reference-note">{html.escape(REFERENCE_NOTE)}</p>
+          <p class="reference-note">{html.escape(REFERENCE_NOTE_EXPRESSION_ONLY if expression_only else REFERENCE_NOTE)}</p>
           <audio controls preload="none" src="tracks/{row_id}/reference.wav"></audio>
         </div>""" + tracks
         blocks.append(
@@ -756,7 +761,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "JSON {row: anchor_id} for rows that have no recording of their own sentence. With "
             "--anchor and --short-axes only, and --texts must give each such row its sentence, "
-            "because the word question is answered against it. Such a row shows the anchor's "
+            "because the lettered tracks are answered against it. Such a row shows the anchor's "
             "recording of anchor_id openly as a speaker and sound-quality reference (no letter, no "
             "question); its lettered tracks are the scored systems alone."
         ),
@@ -841,6 +846,12 @@ def main(argv: list[str] | None = None) -> int:
     untexted = sorted(row for row in reference_rows if not texts.get(row))
     if untexted:
         raise SystemExit("--reference-rows needs --texts with a sentence for: " + ", ".join(untexted))
+    if args.expression_axis or args.expression_only:
+        # The expression question is answered against the sentence, so every row on the page needs one.
+        flag = "--expression-only" if args.expression_only else "--expression-axis"
+        untexted = sorted(row for row in row_ids if not texts.get(row))
+        if untexted:
+            raise SystemExit(f"{flag} needs --texts with a sentence for: " + ", ".join(untexted))
 
     output = args.output
     if output.exists() and any(output.iterdir()):

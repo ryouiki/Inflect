@@ -673,12 +673,13 @@ The page above is the long default. `--minimal-axes` (naturalness, ringing and
 clarity per track, one optional memo per row) and `--short-axes` (ringing and
 missing or mushy words per track, one optional memo per row) are shorter forms;
 `--short-axes` also takes `--pitch-axis`, `--speaker-axis`, one of
-`--click-axis` or `--noise-axis`, and `--expression-axis` (with `--texts`:
-whether the sentence type the text calls for -- question, exclamation,
-hesitation -- comes through; the last question on each track; the pitch
-question still leaves natural intonation out), or `--expression-only` (with
-`--texts`: that question alone and one optional memo per row, for a diagnosis of
-the sentence type that judges no quality), and on the long page
+`--click-axis` or `--noise-axis`, and `--expression-axis` (with a sentence in
+`--texts` for every row on the page: whether the sentence type the text calls
+for -- question, exclamation, hesitation -- comes through; the last question on
+each track; the pitch question still leaves natural intonation out), or
+`--expression-only` (the same sentence requirement: that question alone and one
+optional memo per row, for a diagnosis of the sentence type that judges no
+quality), and on the long page
 `--speaker-axis` and `--clarity-axis` each add one question per track. A page built without these
 flags is the same page byte for byte. Two options depart from the defaults
 described above. `--row-letters FILE` (`{row: {track: letter}}`; a duplicate is
@@ -689,9 +690,15 @@ named rows under `fixed_letter_rows`. `--reference-rows FILE` (`{row:
 anchor_id}`; needs `--anchor`, `--short-axes` and `--texts`) is for a row that
 has no recording of its own sentence: it shows the anchor's recording of another
 sentence openly, as a speaker and sound-quality reference with no letter and no
-question, the lettered tracks are the scored systems alone, the word question is
-answered against the sentence shown from `--texts`, and the mapping records the
-reference under `reference_rows`.
+question, the lettered tracks are the scored systems alone, their questions
+(the word question, where the page has one) are answered against the sentence
+shown from `--texts`, and the mapping records the reference under
+`reference_rows`.
+
+`tally_verdict.py` reports a graded axis as counts and a median of the option
+index. The expression axis (예 / 아니오 / 판단 어려움) is counts only, with no
+median and no step count between a duplicate pair, so "판단 어려움" is never
+read as a step past "아니오".
 
 Score one round at a time. Absolute scores drift between sessions, so only
 contrasts inside a single page are comparable, and none of this is MOS.

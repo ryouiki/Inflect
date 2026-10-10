@@ -156,8 +156,9 @@ a render of the same sentence reaches +16.3, so the separation is wide but the
 `steady_tone_artifact_score` separated the same two sets completely, 29.9
 against 0.00. `clips_f0_locked_to_frame_grid` counts clips where the pitch
 tracker reported the comb as the voice; one failing checkpoint scored 134 of
-160 there. *(Correction, 2026-10-03: the count takes any pitch within 1.5 Hz of
-93.75, 187.5 or 281.25 Hz -- `f0_grid_deviation_hz(max_multiple=3)` -- and the
+160 there. *(Correction, 2026-10-03: the count takes a clip whose median tracked
+pitch lies within 1.5 Hz of 93.75, 187.5 or 281.25 Hz --
+`f0_grid_deviation_hz(max_multiple=3)` -- and the
 two upper multiples fall inside real voices. Recounted by multiple, the
 Korean failing runs are almost all genuine 93.75 Hz locks, but 42 of the 45
 JSUT "locks" sit at 187.5 Hz, inside JSUT's own range, and 8 of the 10 locks of
@@ -288,7 +289,10 @@ Japanese corpus for twenty thousand steps, does not show this failure at all.
 Measured with the same instrument on forty sentences, both its paths sit
 between 1 and 4 dB of grid excess at every checkpoint from step 1000 onward,
 and its pitch never locks to the comb: at worst five sentences of forty, at
-step 20000 two. The Korean runs at step 1000 sit at 7 to 11 dB with all forty
+step 20000 two. *(2026-10-10 note: these counts come from the same instrument as
+the 2026-10-03 correction above, which found most of the JSUT trajectory's
+locks at the 2x multiple inside the corpus's own range; read them as the
+instrument's count, not as a count of comb locks.)* The Korean runs at step 1000 sit at 7 to 11 dB with all forty
 locked. Whatever goes wrong is not something this architecture does whenever
 it meets a new language or a female speaker.
 

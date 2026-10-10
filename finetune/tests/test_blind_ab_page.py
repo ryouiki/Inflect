@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import math
@@ -1018,3 +1019,64 @@ def test_the_expression_only_option_refuses_other_questions(page_module, tmp_pat
     for flag in ("--pitch-axis", "--noise-axis", "--speaker-axis", "--expression-axis"):
         with pytest.raises(SystemExit, match="alone"):
             _reference_page(page_module, tmp_path / flag.strip("-"), ["--short-axes", "--expression-only", flag])
+
+
+def test_the_expression_wording_is_fixed(page_module):
+    assert page_module.EXPRESSION_AXIS == {"label": "표현", "question": "문장 유형(의문 · 감탄 · 머뭇거림 등)이 글에 맞게 들리는가",
+                                           "options": ["예", "아니오", "판단 어려움"]}
+    assert page_module.EXPRESSION_MEMO == "메모 (선택) — 문장 유형이 어떻게 들렸는지(끝의 오르내림, 쉼 등)"
+
+
+def test_the_expression_questions_need_a_sentence_on_every_row(page_module, tmp_path):
+    for flag in ("--expression-axis", "--expression-only"):
+        with pytest.raises(SystemExit, match=f"{flag} needs --texts with a sentence for: 0001"):
+            _reference_page(page_module, tmp_path / flag.strip("-"), ["--short-axes", flag], texts={"x01": SENTENCES["x01"]})
+
+
+def test_the_expression_only_reference_note_names_no_word_question(page_module, tmp_path, monkeypatch):
+    monkeypatch.setattr(page_module.os, "urandom", lambda count: bytes(range(count)))
+    code, output, _ = _reference_page(page_module, tmp_path, ["--short-axes", "--expression-only"])
+    assert code == 0
+    text = (output / "index.html").read_text(encoding="utf-8")
+    reference = text.split('class="track reference"', 1)[1].split('<div class="track">', 1)[0]
+    assert html.escape(page_module.REFERENCE_NOTE_EXPRESSION_ONLY) in reference and "낱말" not in reference
+
+
+def test_the_long_and_minimal_pages_are_unchanged_since_before_the_expression_options(page_module, tmp_path, monkeypatch):
+    """Byte for byte what the builder before --expression-axis (commit c176d6b) wrote for the default and minimal pages."""
+    old = _old_builder(tmp_path, "c176d6b")
+    identifiers = [f"{index:04d}" for index in range(1, 5)]
+    for extra in ([], ["--minimal-axes"]):
+        pages = []
+        for name, module in ((f"old{len(extra)}", old), (f"new{len(extra)}", page_module)):
+            first = evaluate_output(tmp_path / name, "early", identifiers, 0.2)
+            second = evaluate_output(tmp_path / name, "late", identifiers, 0.3)
+            output = tmp_path / name / "round"
+            monkeypatch.setattr(module.os, "urandom", lambda count: bytes(range(count)))
+            assert module.main(["--system", f"early={first}", "--system", f"late={second}", "--rows", "3",
+                                "--catch-rows", "1", "--catch-system", "early", *extra, "--output", str(output)]) == 0
+            pages.append(((output / "index.html").read_bytes(),
+                          (output / "mapping.json").read_text(encoding="utf-8").replace(str(tmp_path / name), "<tmp>")))
+        assert pages[0] == pages[1]
+
+
+def test_tally_counts_the_expression_axis_without_a_median_or_steps(tmp_path, capsys):
+    """예 / 아니오 / 판단 어려움 is not a scale: a median or a step count would read 판단 어려움 as past 아니오."""
+    mapping = tmp_path / "mapping.json"
+    mapping.write_text(json.dumps({
+        "page_key": "expression-only",
+        "axes": {"expression": {"options": ["예", "아니오", "판단 어려움"]}, "memo": "memo"},
+        "rows": {"0001": {"A": "arm", "B": "arm#catch", "C": "other"}},
+        "catch_rows": ["0001"],
+    }), encoding="utf-8")
+    verdict = tmp_path / "verdict.json"
+    verdict.write_text(json.dumps({"page_key": "expression-only", "rows": {"0001": {"tracks": {
+        "A": {"expression": "예"}, "B": {"expression": "판단 어려움"}, "C": {"expression": "아니오"}}}}}), encoding="utf-8")
+    output = tmp_path / "tally.json"
+    assert load_tally().main(["--mapping", str(mapping), "--verdict", str(verdict), "--output", str(output)]) == 0
+    printed = capsys.readouterr().out
+    assert "median option index" not in printed and "옵션 단차" not in printed
+    assert "catch row 0001" in printed and "A: 예, B: 판단 어려움" in printed
+    tally = json.loads(output.read_text(encoding="utf-8"))
+    assert tally["scores"]["arm"] == {"expression": {"예": 1}} and tally["scores"]["other"] == {"expression": {"아니오": 1}}
+    assert all("expression" not in axes for axes in tally["median_option_index"].values())

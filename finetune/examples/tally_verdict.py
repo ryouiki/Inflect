@@ -6,8 +6,10 @@ script is the only place the two meet.
 
 What it reports, and what it refuses to report:
 
-* Per system: the distribution of each descriptive axis, as counts and a median
-  of the option index. Never a mean — the axes are ordinal.
+* Per system: the distribution of each descriptive axis, as counts and, on a
+  graded axis, a median of the option index. Never a mean — those axes are
+  ordinal. The expression axis (예 / 아니오 / 판단 어려움) is counts only, so
+  "판단 어려움" is never read as a step past "아니오".
 * The forced choices, as counts per system.
 * The catch pair, if the page carried one, as the option steps between two
   scores for byte-identical audio. That is a fact about that pair. It is not
@@ -40,6 +42,8 @@ from pathlib import Path
 
 KNOWN_AXES = ("quality", "defect", "language", "ringing", "speaker", "clarity", "content", "click", "pitch", "noise",
               "expression")
+# Axes whose options are not a scale: counted, never given a median or a step count.
+NOMINAL_AXES = ("expression",)
 FORCED = ("most_natural", "most_blurred")
 ROW_TEXT = ("comment", "ring_detail", "ring_order", "memo")
 
@@ -100,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
                     unanswered += 1
                     continue
                 scores[name][axis][value] += 1
-                index = option_index(axes, axis, value)
+                index = None if axis in NOMINAL_AXES else option_index(axes, axis, value)
                 if index is not None:
                     ordinals[name][axis].append(index)
         for choice in FORCED:
@@ -148,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
                     values = {letter: scored.get(letter, {}).get(axis, "") for letter in sorted(group)}
                     indexes = [option_index(axes, axis, value) for value in values.values() if value]
                     indexes = [index for index in indexes if index is not None]
-                    steps = f" · 옵션 단차 {max(indexes) - min(indexes)}단" if len(indexes) > 1 else ""
+                    steps = f" · 옵션 단차 {max(indexes) - min(indexes)}단" if len(indexes) > 1 and axis not in NOMINAL_AXES else ""
                     shown = ", ".join(f"{letter}: {value or '—'}" for letter, value in values.items())
                     print(f"  {axis:9} {shown}{steps}")
                 print("  (바이트 동일 오디오 · 라운드 전체의 잡음 바닥도 변동의 상한도 아니다)")
