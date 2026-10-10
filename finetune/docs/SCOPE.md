@@ -49,11 +49,11 @@ A model may remain intelligible while becoming thin, buzzy, metallic,
 sibilant, unstable, or unlike the target speaker. Low training loss is not
 evidence that adaptation succeeded.
 
-One of those has since been traced rather than merely named. A comb of tones on
-the decoder's frame grid, audible even in silence, comes from the latents
-drifting while the decoder is frozen, and the evaluation now measures it on
-every clip. The troubleshooting document describes the symptom and the
-controls. The rest of that list remains a list of things to listen for.
+One of those is now measured rather than merely named: a comb of tones on the
+decoder's frame grid, audible even in silence, which the evaluation measures on
+every clip. Its cause is open; drift in the latents while the decoder is frozen
+was the first explanation, not an established one. The troubleshooting document
+describes the symptom, the screens and the controls. The rest of that list remains a list of things to listen for.
 
 ## Public toolkit versus private release process
 

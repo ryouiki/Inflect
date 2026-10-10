@@ -130,591 +130,241 @@ alone. More steps can make adaptation worse.
 The giveaway is that it does not stop when the speaking does. A comb of tones at
 multiples of the sample rate over the frame hop sits under the render, and on
 headphones it localizes as a single pitch behind the voice. For Micro at 24 kHz
-with hop 256 that is 93.75 Hz and its multiples.
-
-What it does between words is measured on the render's own noise floor, so read
-those numbers with the floor in mind. On two Japanese checkpoints the windows
-with no active frame are 1.2 to 1.4 LSB of a 16-bit file, and the ratio there
-is taken against a floor that quantisation is partly setting. Comparing the
-float output against the stored file on the same windows separates the two: the
-ratio is 8 to 9 dB *higher* before the file is written on one track, within a
-decibel on another, and identical to two decimals in every window where every
-frame -- or all but one -- is active. Partially active windows are not that
-clean: seventeen of them move by more than a hundredth of a decibel and seven
-by more than two tenths, the largest by 5.6 dB, all of them windows with five
-or fewer active frames. So the comb does not stop between words, but its size
-there is a measurement about the file as much as about the model, and the
-effect is confined to windows with little speech in them.
+with hop 256 that is 93.75 Hz and its multiples (187.5 Hz, 281.25 Hz and so
+on). The decoder's upsampler has no anti-imaging filter, which is why this is
+the grid where the energy lands when the comb appears.
 
 Confirm the tone's presence from an evaluation report rather than by ear, and
-leave the verdict to the listener -- screens eliminate, they do not decide.
-`grid_tone_excess_db` measured 8.15 dB at the median on a rejected run against
--0.13 dB on the speaker's own recordings. It is not zero by construction for
-real speech: on 341 ms windows a recording of this speaker reaches +5.8 dB, and
-a render of the same sentence reaches +16.3, so the separation is wide but the
-"+6 and up" that reads like a line on whole clips is not one on windows.
-`steady_tone_artifact_score` separated the same two sets completely, 29.9
-against 0.00. `clips_f0_locked_to_frame_grid` counts clips where the pitch
-tracker reported the comb as the voice; one failing checkpoint scored 134 of
-160 there. *(Correction, 2026-10-03: the count takes a clip whose median tracked
-pitch lies within 1.5 Hz of 93.75, 187.5 or 281.25 Hz --
-`f0_grid_deviation_hz(max_multiple=3)` -- and the
-two upper multiples fall inside real voices. Recounted by multiple, the
-Korean failing runs are almost all genuine 93.75 Hz locks, but 42 of the 45
-JSUT "locks" sit at 187.5 Hz, inside JSUT's own range, and 8 of the 10 locks of
-one speaker-A run on JSUT text sit at 281.25 Hz. Read a lock count together
-with the median pitch it was taken from.)* The training run also writes the two cheap screens into each
-`validation/step-*.json`, so the arrival can be dated to within a validation
-interval instead of discovered at the end.
+leave the verdict to the listener. Screens eliminate; they do not decide.
 
-The first investigation blamed drift in the latents rather than the decoder
-weights; later runs ruled the drift's size out as the controlling variable (see
-the end of this section), and the cause is open. The released checkpoint carries no posterior encoder, so a fresh one
-starts every run, and while the decoder is frozen the adversarial gradients
-still reach the posterior encoder through it with nothing anchoring where they
-go. They do not reach the flow, which the KL term updates instead. Feeding the drifted latents to the released decoder
-rang harder than feeding them to the adapted one. That was read at the time as
-ruling the decoder out, which it does not: the reverse case, released latents
-through the adapted decoder, was never run, so how the two interact is still
-open. The upsampler has no anti-imaging filter, which is why this particular
-grid is where the energy lands.
+### The screens
 
-There is no known fix, and the search for one is mid-flight. The two training
-controls that exist for this were tried on one corpus at 10,000 steps each and
-did not reduce the comb on those screens: gating the adversarial term left the
-artifact where it was, and a reconstruction-only decoder polish made it
-substantially worse, collapsing the median tracked pitch onto the comb
-frequency. But every one of those runs trained against a mel loss that floored
-its two sides differently, so what those numbers measure is those controls
-under a broken objective. None of those runs was listened to.
+- `grid_tone_excess_db`: the mean power per bin (Welch, 8192-sample window) in
+  bins within 4.4 Hz of any grid multiple, over the mean power per bin in the
+  rest of the band from 2 kHz to about 11.9 kHz, in dB. It needs at least 8192
+  samples (about 341 ms at 24 kHz); a shorter clip reports nothing. It is
+  positive when a comb is present, but it is not zero by construction for real
+  speech, so read it against the same sentence's recording.
+- `grid_tone_level_db` and `off_grid_level_db`: the same two band powers against
+  the clip's own signal power. Compare these across renders. Their absolute
+  offset depends on the window settings.
+- `fold_periodic_excess_db`: the clip folded into hop-length frames, relative to
+  the floor an uncorrelated signal would give. It corroborates the others
+  rather than accusing on its own.
+- `steady_tone_artifact_score`: summed prominence of spectral peaks that are
+  steady across frames and above 1200 Hz. Real recordings score low because
+  their prominent lines move with the voice. It costs more per clip, so the
+  training-time validation leaves it out; the offline evaluation reports it by
+  default (`--no-steady-tone-screen` turns it off).
+- `f0_grid_deviation_hz` and `clips_f0_locked_to_frame_grid`: a pitch tracker
+  fed a ringing render reports the comb as the voice. A clip counts as locked
+  when its median tracked pitch lies within 1.5 Hz of 93.75, 187.5 or 281.25 Hz
+  (`f0_grid_deviation_hz(max_multiple=3)`). The deviation is reported next to
+  the excess because a pitch that happens to sit on the grid raises the excess
+  legitimately.
+- The inter-word ratio: the same grid power ratio measured on windows with no
+  active frame, to ask whether the comb continues between words.
 
-That defect is fixed, and the controlled comparison has been run. Against
-signal power it looked like progress: the broadband floor fell 4.64 dB and the
-comb 3.16 dB, on 40 and 37 of 40 sentences. Measured absolutely the same
-sentences say something else. On-grid power rose 0.99 dB, with the fixed arm
-lower on only 9 of 40, while total power rose 3.97 dB on 39 of 40 and the
-renders came out shorter with less silence in them. The comb did not shrink;
-the render got louder. Both arms then failed listening outright at 1,500 steps,
-scored "not a human voice" on every row, so the round is a usability rejection
-rather than a deferral at that checkpoint. It is not a prediction for longer
-training: the Japanese base was equally not speech at step 1,000 on either
-path and reached 4 of 5 by step 20,000. The mel fix stays in: it is a defect fix on its own
-terms, and this experiment did not resolve the artifact by itself.
+The training run writes the cheap screens (`grid_tone_excess_db` and
+`fold_periodic_excess_db`, with the level readings) into each
+`validation/step-*.json`, so the arrival of a comb can be dated to within a
+validation interval instead of discovered at the end. They come from one
+rendered clip, so read them as a trend to watch, not as a gate. The gate is the
+offline evaluation over a held-out set, against the real recordings of the same
+sentences.
 
-That episode is the reason this page keeps three readings of the comb. The
-ratio, the level and the absolute power ranked the two arms three different
-ways, and the listening test agreed with none of them about which was better.
-Screens eliminate; the listener decides.
+A screen that cannot measure a clip reports nothing and raises no flag. Silence
+is not innocence. The flag thresholds (defaults in `evaluation.py`) were set on
+a small set of speakers on one render channel, so a clip that sits just inside
+one has proven nothing.
 
-Crossing latents against decoders has since narrowed where to look. The same
-twelve sentences were rendered through three decoders with the latents held
-fixed. Latents from the released prior path came out clean through all three,
-including two decoders that had trained for 7000 steps; latents from an
-adapted run rang through all three, including the released decoder. That held
-on 12 of 12 sentences in every decoder. So adapted decoder weights are not
-necessary for the comb, and the latents are where it enters. That is not the
-same as clearing the decoder: this architecture may still be what turns those
-particular latents into a comb, and the released decoder has no anti-imaging
-filter. Which property of the latents matters is not settled either: removing
-their per-channel offset helps on one screen and hurts on the other, matching
-their scale helps modestly, and smoothing them in time helps on neither.
+*(Correction, 2026-10-03: the lock count takes a clip whose median tracked
+pitch lies within 1.5 Hz of any of the first three multiples, and the two upper
+multiples fall inside real voices. A lock at 187.5 or 281.25 Hz can be the
+speaker's own pitch and not a comb. Read a lock count together with the median
+pitch it was taken from, and recount by multiple when the pitch range of the
+speaker or corpus reaches the upper multiples. Lock counts recorded earlier with
+this instrument count matches to any of the first three multiples, so where the
+pitch range reaches the upper multiples they can include the speaker's own
+pitch rather than a comb.)*
 
-Naming the screen matters when reporting that grid. Decoder training looks
-progressively worse on the ratio, 6.33 then 8.01 then 9.89 dB across the
-released, control and reconstruction-polish decoders, and progressively better
-on the relative level over the same three, -44.48 then -46.47 then -47.66 dB.
-Which of those is the worse sound has not been listened to.
+### Reading limits
 
-The listening round that followed reframed the problem. At 1,500 steps neither
-arm produced speech at all, only ringing at the tempo of the sentence, while a
-10,000-step control was scored as awkward but recognisable speech. What is
-failing is the formation of speech, not a residual noise on top of it.
+**Short windows.** On windows of a few hundred milliseconds a real recording can
+read clearly above zero on the excess, so a threshold that works on whole clips
+is not a line on windows. Compare a window with the same window of a recording,
+not with a whole-clip threshold.
 
-Splitting the two paths on existing checkpoints then separated the two
-problems outright. A 10,000-step run reconstructs and infers as recognisable
-speech while carrying 8.1 dB of comb excess; the 1,500-step arms carry the
-same 7.7 to 8.6 dB and are not speech at all. **How much comb a render has
-does not predict whether speech formed in it.** Treat them as two problems.
+**Between words, and the quantisation floor.** Windows with no active frame sit
+close to the 16-bit quantisation level, so the inter-word ratio there is partly
+set by quantisation. Compare the float output with the stored file on the
+windows a number rests on before reading it. In fully active windows the two
+agree; in windows with little or no speech the float output can read higher
+than the stored file, by an amount that varies from track to track, and windows
+with only a few active frames are not clean either. Quantisation lowers the
+measured ratio there; it does not create the comb. So a comb seen between words
+is a property of the model, but its size there is a measurement about the
+stored file as much as about the model.
 
-The same split found a working path that later broke. At step 500, with the
-prior, flow and decoder all still frozen, inference produced clean speech,
-scored "speech but awkward" with no defect at all, in a voice the listener
-described as an English-speaking man reading Korean text. A thousand steps of
-linguistic adaptation later the same path is not speech and is the most
-smeared track on the page. Both 1,500-step paths also hand their pitch to the
-comb, tracked at 93.75 Hz on 34 and 39 of 40 sentences, while every render
-scored as speech tracks near the speaker's own 360 Hz. Pitch lock is not
-necessary for a render to fail, but nothing that locked has passed.
+**A ratio versus an absolute level.** The excess is a ratio whose denominator is
+the render's own broadband floor, which makes it a good detector and an unsafe
+comparator. When one render has both a quieter comb and a much quieter floor,
+the ratio can rank the render whose comb is quieter worse. Every screen above
+is also invariant to pure gain, so none of them says how much comb there is.
+Three readings answer three questions. The excess ratio asks whether the
+artifact is present. The level against signal power asks what share of the
+render is comb. The level plus the clip's `rms_dbfs` (the absolute mean power
+of the selected bins, not an isolated ringing component) asks how much comb
+there is as rendered, and it is worth computing whenever two renders sit at
+different loudness. When one render is louder, shorter or has less silence in
+it, these readings can disagree about which of two arms rings less; length,
+pause share and spectral content move total power on their own, and no
+normalisation removes them. So name the reading when reporting a comparison.
+None of the three replaces listening.
 
-Two more sentences, the highest-pitched one and the one with the most silence,
-gave the same picture on every track, so it is not a property of one sentence.
-What was confirmed is speech with no defect on all three, scored 2, 3 and 2
-for naturalness. Whether it is Korean is a separate axis and it did not pass:
-the language answers were "hard to say", "hard to say" and "no", and the free
-text on one sentence says outright that it did not sound Korean. So the
-released prior already renders these Korean phonemes as defect-free human
-speech in a foreign voice, and the first thousand steps of adaptation take
-that away. Speech preservation and Korean intelligibility are reported apart.
+### Which path rings
 
-Walking every checkpoint the longer runs saved, with pitch lock as the
-instrument, puts a shape on that. Every run locks within the first 500 steps
-of linguistic adaptation, while its decoder is frozen. One gated run was
-unlocked at step 1000 and locked by 2000, but the other run under the same
-gating locked on all 40 sentences at 1000, so "gating delays the lock" is a
-single observation that did not reproduce. The
-lock releases only where a run both trained its decoder and had the
-adversarial term on: two runs did, and both released at the first checkpoint
-after unfreezing. A run that trained its decoder on reconstruction alone
-stayed locked through seven thousand decoder steps, and a run that kept its
-decoder frozen with the adversarial term on stayed locked to the end. The comb
-excess stayed between 6 and 12 dB through all of it, released or not. Pitch
-lock is a screen, and the checkpoints where it releases have not yet been
-listened to; treat "released" as "released", not as "speech".
+A checkpoint renders two ways. Reconstruction runs a real recording through the
+posterior encoder into the decoder. Inference runs text through the prior
+encoder, the duration predictor and the flow into the same decoder. The decoder
+is the only module the two share. Reconstruction uses the posterior and the
+decoder together, so a ringing reconstruction cannot single out either of them.
+It also inherits the recording's timing and contour, so a listener may be able
+to tell which tracks are reconstructions, and the comparison is not fully blind
+to the path. Ringing has been observed on both paths, so a mismatch between the
+training path and the inference path is not the whole story, but it is not
+cleared either.
 
-The Japanese speaker's runs close the obvious explanation. A run that unfroze
-its decoder at step 500, the moment linguistic adaptation begins, still locked
-on 40 of 40 sentences by step 1000, so a decoder that can respond does not
-prevent the collapse, and a run with the adversarial term off throughout
-locks just as early, so that term is not necessary for it either. Neither
-result excludes a contribution or an interaction. Every configuration tried collapses in the first 500
-steps of linguistic adaptation. What every run shared and none varied is a
-posterior encoder initialised fresh and warmed for 500 steps, a linguistic
-learning rate of half the base rate, and a KL weight of one. Those are the
-axes a follow-up has to move, one at a time.
+### What is known about the cause
 
-### Why the Japanese language base did not ring
+The cause is open. Treat the screens as the reliable part and the explanations
+as provisional.
 
-The first adaptation this toolkit ran, a released model onto nine hours of a
-Japanese corpus for twenty thousand steps, does not show this failure at all.
-Measured with the same instrument on forty sentences, both its paths sit
-between 1 and 4 dB of grid excess at every checkpoint from step 1000 onward,
-and its pitch never locks to the comb: at worst five sentences of forty, at
-step 20000 two. *(2026-10-10 note: these counts come from the same instrument as
-the 2026-10-03 correction above, which found most of the JSUT trajectory's
-locks at the 2x multiple inside the corpus's own range; read them as the
-instrument's count, not as a count of comb locks.)* The Korean runs at step 1000 sit at 7 to 11 dB with all forty
-locked. Whatever goes wrong is not something this architecture does whenever
-it meets a new language or a female speaker.
+The first explanation was drift in the latents. The released checkpoint carries
+no posterior encoder, so a fresh one starts every run, and while the decoder is
+frozen the adversarial gradients still reach the posterior encoder through it,
+with nothing anchoring where they go. They do not reach the flow, which the KL
+term updates instead. The size of that drift, taken as a single scalar, was not
+found to be the controlling variable. Which property of the latents matters, if
+any, is unsettled: per-channel offset, scale and smoothing in time have been
+probed, and the screens did not agree about them.
 
-The voice run that followed it warm-started from that base but did not inherit
-its posterior encoder: the export carries the text path and the decoder, and a
-hundred tensors of posterior are initialised fresh. That run locks partially,
-thirteen to sixteen sentences at step 1000, and works its way back out by step
-7000 while its pitch climbs toward the target speaker. Three regimes, then,
-and they differ in more than one thing at once: data volume, pitch range and
-starting point all move together, so none of this attributes a cause.
+Crossing latents against decoders (the same sentences through several decoders
+with the latents held fixed) is the way to separate where the comb enters. The
+crossings run so far were read on the ratio screen without listening, and
+swapping the latents also swapped the speaker, so they isolate neither a
+property of the latents nor clear the decoder. Which of the two the comb enters
+through is not settled, and a crossing that implicates one does not clear the
+other.
 
-Two short runs test the one axis that can be isolated. From the same export,
-byte-identical, one run starts a fresh posterior and one inherits the trained
-one; nothing else differs. On the instrument the inheriting run is
-consistently lower, and both are clean while the linguistic path is still
-frozen.
+Comb size alone does not say whether speech formed, so the two are treated as
+separate problems and speech is judged by a listener. Forming speech and
+finishing quality are separate milestones too: a run that has formed speech has
+not necessarily reached usable quality. Hearing the right language is a third
+question. Report speech, language and defect separately, and do not promote
+"speech" to "usable".
 
-Listened to, the base at 20,000 steps is speech on both paths, scored 4 of 5
-with a defect "noticeable if you listen for it", which is the level the earlier
-informal impression had described. At step 1000 it is not speech at all, on
-either path, even though the instrument had it unlocked at 205 Hz with a comb
-excess of 3 dB. That is the second time an unlocked render has failed as
-speech, so an unlocked pitch says the comb has not captured it and nothing
-more; the difference between this base and the failing runs at step 1000 is
-between an unlocked non-speech and a locked one. The replay under current code
-was not speech at 1000 either, so that comparison could not be judged; the
-listener called it the more smeared of the two on every sentence. And the
-inherited posterior did not turn the voice runs into speech at 500, 1000 or
-2000 on two sentences of three, for all that the instrument preferred it;
-on the highest-pitched sentence alone it reached "speech but awkward" where
-the fresh posterior did not. Inheriting the posterior on its own was not sufficient as
-a remedy in this condition; whether the fresh initialisation contributed to the
-failure stays open, since nothing yet separates a posterior that was fine when
-handed over and degraded during warm-up from one that never handled this
-speaker's audio. How much longer the original run needed to form speech, and
-what the voice run lost and when, are the next questions; which other state to
-inherit stays a later candidate.
+Equal steps are not equal epochs. The same number of updates is a different
+number of passes over corpora of different size, and the starting weights, the
+data volume and the target pitch range differ as well, so equal step counts
+across conditions are not a like-for-like comparison.
 
-### When speech forms, and what adaptation removes
+### Training controls
 
-Two questions that mattered have answers now, both from checkpoints that
-already existed.
+Every control below is off by default, so a command that sets none of them
+behaves as it always has. `TRAINING.md` says what each one does; this section
+says when each one is a reasonable thing to try. No evidence yet favours one
+over another.
 
-The Japanese base had formed speech by step 2,000, the earliest point
-listened to: two of three sentences on the inference path and all three on
-reconstruction. Quality then keeps climbing for the rest of the run, from a
-median naturalness of 2 at 2,000 to 5 at 20,000 as the defect grade falls
-from 2 to 1. Speech forming and quality finishing are separate milestones, so
-a run that has one has not necessarily reached the other. Note also that
-speech was there before the decoder unfroze at 3,000; naturalness does jump
-at the first checkpoint after unfreezing, but one run on one grid cannot
-attribute that.
+- `--adversarial-gating` holds the generator's adversarial and feature-matching
+  terms at zero while the decoder is frozen, then ramps them in over
+  `--adversarial-ramp-steps` from the unfreeze step. `--warmup-adversarial-gating`
+  holds the same terms at zero for the posterior warm-up alone and restores full
+  weight when linguistic adaptation starts. Try them when you want the posterior
+  encoder not to be pushed by a freshly initialised critic through a frozen
+  decoder. Gating removes one candidate factor; it has not been shown to prevent
+  the comb.
+- `--decoder-lr-warmup-steps` eases the decoder in after it unfreezes, so its
+  first update is not the largest it will ever take. Try it when the comb first
+  appears around the unfreeze step.
+- `--decoder-polish-mode recon` trains only the decoder in the polish stage,
+  against reconstruction losses with no discriminator, with the posterior
+  encoder and the flow held, so the latents stop moving while the decoder
+  answers for them. The `posterior_decoder` variants also train the posterior
+  encoder (`posterior_decoder_recon` without the discriminator), so they do not
+  hold the latents still.
+- `--stft-loss-weight` adds a multi-resolution STFT term. In a synthetic
+  comb-injection check it charged for a narrow comb more heavily than the
+  80-band mel does; that is a property of that check, not a general one.
+- `--decoder-proximal-weight` holds the decoder near its starting weights.
+  `--decoder-freeze-upsamplers` holds the transposed convolutions, where the
+  grid enters the waveform, and the input convolution.
+- `--generator-ema-decay` keeps an averaged copy, a second candidate for the
+  listening round at almost no cost.
+- `--posterior-init inherit` starts from the posterior encoder of a chained
+  export instead of a fresh one.
+- `--discriminator-update-order first` steps the discriminator before the
+  generator's adversarial terms are computed; neither order is recommended over
+  the other (see `TRAINING.md`).
 
-The same number of updates, 2,000, produced no speech in the Korean and
-voice runs, so the two conditions behave differently at equal step counts.
-That is as far as it goes: 2,000 steps is roughly the third epoch of the
-Japanese corpus and the fourteenth of the voice corpus, the starting weights
-differ, and so do data volume and target pitch range, so this does not rule
-out training length and does not say which of those matters. Speech forming
-is also not the same as being heard as Japanese: the language question was
-answered "yes" on all three sentences first at step 4,000, with 3,000
-answered "hard to say" on all three and nothing observed in between.
+None of them is a known fix, and there is no recommended remedy. A control that
+moves a screen has not thereby changed what a listener hears, and the earliest
+trials of some controls were screen-only and ran before the mel-loss fix, so
+they do not rule a control out. Use them one at a time, as candidates for a
+blind listening round, with the pass bar declared before the run. Prove from the
+logs that the manipulation took effect (the gated rows carry a zero adversarial
+weight with null generator-side losses and a finite discriminator loss),
+because a null result from a control that never switched on says nothing. A
+restore of one module leaves a mixture of weights that never trained together,
+so a variant that does not recover does not clear its module. Watch the screens
+in `validation/step-*.json` and `z_dc_rms` in `metrics.jsonl` while a run is
+still cheap to abandon.
 
-On the voice side the loss is now visible directly. The frozen base prior,
-reading the voice speaker's Japanese text before any adaptation, is speech on
-all three sentences at naturalness 3 to 4 with a barely noticeable defect.
-That output is the base speaker's voice reading the target speaker's text;
-the target voice had not been acquired. After two thousand steps of
-adaptation the same sentences score 1. Within the observed window,
-adaptation degraded inference output that was already there; whether that is
-permanent, or recoverable with more training, has not been tested. The
-inherited posterior's reconstruction failure, separately, was present before
-warm-up began: reconstructing the voice speaker's own recordings through it
-fails on two of three sentences at step zero. Those scores sit on the floor,
-so whether warm-up made it worse still cannot be read, and reconstruction
-exercises posterior and decoder together, so it does not single out the
-posterior. The instrument had preferred step zero by 2.7 dB, which again did
-not survive listening.
+### Comparing runs
 
-The degradation is not confined to the new speaker's text. Rendering the base
-corpus's own sentences through the adapted checkpoint drops naturalness from 5
-to 2 on both sentences listened to, with the language answer going from yes to
-no, so whatever adaptation did to the inference path it did to text the model
-already read well.
+Repeating a run with the same nominal settings does not reproduce the trained
+weights: two runs with the same seed, corpus and early settings were found not
+to end with the same trained weights, while the frozen parts matched. What
+produces the variation has not been isolated: nothing here separates GPU kernel
+nondeterminism from mixed precision from anything else, and no experiment to do
+so is planned. Rendering is a separate matter: the render check re-renders a
+checkpoint at a fixed seed and expects identical bytes.
 
-Shrinking the corpus to the voice corpus's size did not reproduce it. A subset
-of the base corpus matched to the voice corpus on rows, hours and number of
-passes, trained from the same export with the same inherited posterior and the
-same schedule, came back level with the full-corpus control on both sentences
-listened to: same naturalness grade, same defect grade, still heard as the
-right language, and the duplicated track agreed exactly on both. The
-full-corpus control held up on those sentences too, so the round had a working
-positive reference. That is where the reading stops — the size axis stays open,
-because the difference the round measured came out undecided under its own
-two-grade bar rather than at zero effect.
+So a contrast between two runs carries this variation alongside whatever was
+manipulated. Its size is unmeasured, and a single repeat pair would be one
+observation of it rather than a bound. Do not read a gain of zero as evidence
+that the variation is small. A verdict that rests on a gain of one grade or less
+is weakened by it, not supported. An interrupted and resumed run is also not an
+uninterrupted run of the same length: the loader's shuffle position is not
+checkpointed, so the data order restarts (see the branching notes in
+`TRAINING.md`).
 
-Read it narrowly for a second reason. One flag moved three things at once: how
-much data, how many times each row is seen, and which rows were drawn. What it
-did not move is whether the model had seen the rows before — both arms train on
-material the base already fit, so that term is held fixed here, and it is the
-switch to the new speaker's corpus that changes it. Separately, because the
-subset is drawn from the corpus the base already trained on, none of this
-speaks to repeating a small amount of *new* material, which is the voice
-condition; that is a limit on generalising, not a confound between the arms.
-What the round does do is move the search: the remaining differences on that
-side are the speaker's own voice characteristics, the pitch range, the
-alignment, and whether the inherited posterior matches the data it now meets.
+### Lessons for listening rounds
 
-Restoring one module at a time narrows it a little and not enough. Putting the
-flow back to its pre-adaptation weights, with everything else left adapted,
-raises naturalness by one grade on both sentences and turns one sentence's
-language answer from no back to yes; restoring the text encoder and duration
-predictor moves one sentence by one grade and the other not at all. The
-pre-declared bar for a recovery was two grades on both sentences, so module
-attribution stays undecided — which is not the same as no effect, and the free
-text agreed that the restored variants sound better than the adapted one. All
-of them keep the worse defect grade, so none returns to the original quality.
-Restoring one group leaves a mixture of weights that never trained together,
-so a variant that does not recover does not clear its group. Note also that
-the posterior and the discriminator kept training through this window, so
-naming a module says nothing yet about what moved it.
+- Screens eliminate; the blind listener decides. A screen can separate two runs
+  that a listener cannot, and the reverse.
+- An unlocked pitch is not speech. It says the comb has not captured the
+  tracker and nothing more, and a render can fail as speech while unlocked. A
+  lock that releases is "released", not "speech". An aggregate over many
+  sentences is a fact about those sentences, so do not read it alongside grades
+  given to the few sentences that were heard.
+- What a page cannot separate is the page's limit, not "no effect". One
+  listener, a few sentences and ordinal scales of three to five steps can fail
+  to put two tracks in different grades while a smaller difference, or one the
+  axes do not ask about, remains open.
+- A duplicate of one track, placed on the page under another name, shows what
+  the same audio scores. If using the duplicate's score in place of the
+  original's changes how a comparison is classified (for example because the
+  two scores fall on both sides of the speech boundary), that comparison is
+  undecided and is reported as such. A split that changes no classification is
+  noted but decides nothing.
+- Declare the bar before listening, and do not add gains from separate pages
+  together: a bar met on one page and missed on another is two readings, not a
+  sum.
 
-The flow restore was then put to the listener once more, on two sentences of
-the new speaker's text it had never been heard on, with the adapted track
-duplicated on both rows. This time the duplicate agreed exactly, all three
-axes, on both sentences, so the outcome does not hang on that reading: the
-restore gained one grade on one sentence and two on the other, and the
-pre-declared bar of two grades on both was not met. It is the fourth sentence
-in a row where restoring the flow scores higher than leaving it adapted, and
-the second page where that does not add up to a recovery. Both restores still
-carry the worse defect grade. Gains from separate pages are not summed, so
-module attribution stays undecided, and re-listening on this axis stops here;
-what remains untested is which member of the corpus-change bundle matters.
-
-The restart itself was then taken out of the question. A second run started
-from the same export with the same inherited posterior and the same schedule,
-adapting back onto the corpus the export came from, so the only flag that
-differed was the dataset. Its options file matches the first run on every key,
-and both checkpoints at step 500 render all forty sentences bit-identically,
-which they must while warm-up freezes the inference path. Listened to on two
-sentences never used before, that run scores within one grade of the
-pre-adaptation output on both, keeps the same defect grade, and is still heard
-as Japanese; the run that had changed corpus scored two or more grades lower
-on both sentences in the same round, and its language answers went to no. So
-under these conditions, with the target data unchanged, no large degradation
-was observed. That is not the same as restarting being harmless: this run
-revisits data it had already converged on, and its inherited posterior was
-fitted to exactly that data, so the comparison changes several things at once
-under one flag. Which member of that bundle matters is untested, and the
-mechanism stays open.
-
-The same restores were then listened to on the new speaker's own text, with
-the pre-adaptation and adapted renders in the same round. Naturalness there
-falls from 4 and 5 before adaptation to 1 on both sentences after it, and both
-language answers go from yes to no, so the degradation shows on the target text
-as well as on the base corpus. The flow restore gains two grades on both
-sentences, which would meet the pre-declared bar, but this page's catch pair
-disagreed: the same bytes scored 1 and 2, one grade apart and across the
-speech boundary. Scoring that sentence with the duplicate instead drops the
-gain to one grade and changes the classification, so the comparison is
-undecided and module attribution still is. The signal is the largest seen so
-far and it points the same way as the base-corpus page, where the same restore
-gained one grade on each sentence; the two pages are not added together,
-because the bar is two grades on both sentences of a single page. Restoring
-the text encoder and duration predictor gains one grade per sentence there,
-also undecided. Both restores keep the worse defect grade on this text too,
-and the listener noted that even the best restore had shifted the delivery and
-rung more than the pre-adaptation render.
-
-The first of those has been moved. A run with the posterior warmed for 1,500
-steps instead of 500, nothing else changed, was listened to against the
-original at the same offset into adaptation: every adapted track on every
-sentence scored "not a human voice", including the reconstruction at the
-adaptation boundary. So that schedule did not prevent the absence of speech within the observed
-early window, and the readiness manipulation itself did not take, which leaves
-the readiness hypothesis untested rather than refuted. What the run did show is
-that a fresh posterior locks its pitch onto the comb by step 1000 with the
-linguistic path and decoder both frozen, so the collapse does not need
-linguistic adaptation at all; posterior-only training reaches it. The
-500-step posterior that had not locked may simply have stopped earlier.
-
-The same lever was then pulled on the inherited posterior, in the other
-language, with adaptation length held equal. That is a different cell and not
-a repeat: the earlier warm-up run started its posterior from scratch on the
-Korean corpus with a different voice actress and was heard 500 updates into
-adaptation, while this one inherits the posterior from the base export, adapts
-on the Japanese voice corpus, and runs three thousand steps so that both arms
-take exactly fifteen hundred adaptation updates. Neither comparison cleared
-its pre-declared two-grade bar. The reconstruction at each arm's own
-adaptation boundary scored 2 in both arms on both sentences, and the inference
-at equal adaptation length scored 1 in both arms on both sentences; both gains
-are zero. The duplicated reconstruction track agreed exactly on all three axes
-in both rows, so neither reading hangs on the duplicate, and the baseline
-scores sat low enough, 2 and 1, that a two-grade gain was arithmetically
-available. Read that as the manipulation not clearing its own bar rather than
-as the schedule leaving the output alone: with both gains at zero, the
-hypothesis that adaptation should start from a better-prepared posterior is
-untested here, not refuted. Lengthening warm-up is also not a single variable
-— the discriminator keeps training through it, so its update count and its
-learning rate move as well, along with the data stream position and the
-optimizer state — which is why this reads as a statement about that schedule
-and not about posterior readiness. A longer warm-up still, a lower posterior
-learning rate, and gating the adversarial term during warm-up all remain
-untried. The instrument had put the two boundary reconstructions within 0.14 dB
-of each other, the two arms' mel windows 0.011 apart and their KL windows 0.31
-apart (mel 0.9881 / KL 3.2167 in the 500-step warm-up arm, 0.9774 / 3.5254 in
-the 1,500-step arm); the listening put both arms at the same score on both
-sentences, which is a description of where those readings landed, not the
-reason for the verdict.
-
-Taking the critic out of the warm-up did not move either question. A run
-identical to the one above except that the generator's adversarial and
-feature-matching terms are held at zero for the fifteen hundred warm-up steps,
-and restored to full weight for the fifteen hundred adaptation steps, was
-listened to against it on two fresh sentences. Neither row met the
-pre-declared bar of two grades on both sentences: the boundary reconstruction
-scored 2 against 2 on one sentence and 1 against 1 on the other, and the
-inference at equal adaptation length scored 1 against 1 on both. The
-intervention itself is visible in the log rather than inferred -- every gated
-row carries a zero weight with both generator-side terms null and a finite
-discriminator loss, and the first adapted row is back at full weight -- so
-what did not clear the bar is the schedule's effect on what the listener
-heard, not the manipulation. Read the gains per sentence rather than as one
-number: scoring the duplicated baseline instead of the original turns one
-sentence's gain from zero to one, which is still short of the bar and does not
-change the row. That one is not a partial improvement in the candidate: the
-candidate track scored 2 under either scoring and did not move at all, and the
-gain appeared only because the baseline's own score for the same bytes fell
-from 2 to 1. That duplicate is worth noting on its own: the same bytes
-scored 2 and 1 on that sentence, one grade apart and across the speech
-boundary, so whether that track counts as speech at all is undecided here.
-Seven axis cells were left blank, all on the second sentence, which is why
-nothing is said about its language axis. The listener's free text on both
-sentences was that little is voiced and the rest rings, and added that the
-phonemes that do come through sound closer to the base corpus's speaker than
-to the target -- an observation recorded as such, since voice identity is not
-an axis this page scored.
-
-Training past the decoder unfreeze was then tried on the inherited recipe,
-which no run had done. Ten thousand steps, seven thousand of them with the
-decoder training, and the same two sentences heard at the last frozen
-checkpoint, at six thousand, and at the cap. The output at the cap is speech
-on both sentences and is heard as Japanese on both: naturalness 3 and 2 with
-the language answer yes, against naturalness 1 with "hard to say" and "no" at
-the last frozen checkpoint. The duplicated track agreed exactly on all three
-axes in both rows, so none of that hangs on a single reading.
-
-It did not clear the bars. Recovery was pre-declared as naturalness 3 or
-better with the language answer yes on both sentences, and one sentence came
-in at 2. Usability adds a defect grade of 1 or better on top of that, and the
-defect grade is 2 on both sentences -- the ringing is still there, and the
-listener said so in the free text on both. The gain over the last frozen
-checkpoint is two grades on one sentence and one on the other, which is short
-of a bar that asks for two on both. So: speech and the right language on both
-sentences, and neither pre-declared threshold met. Write those as the separate
-findings they are, and do not promote the first into "usable". Note also that
-those two misses are one observation and not two: the recovery bar and the
-step-3000 contrast both fail on the same score, the second sentence's final
-naturalness of 2. Had it been 3, both would have held.
-
-Two things about that run limit what it can carry. The host killed it twice
-while it was writing a checkpoint, and the loader's position is not
-checkpointed, so the data order restarted at step 6500 and again at 8000; this
-is not an uninterrupted ten thousand steps, and the discontinuities sit between
-the very checkpoints the contrasts compare. And the instrument moved in the
-same window -- the pitch lock released completely after the unfreeze while the
-comb stayed at six to nine decibels -- but the lock is an aggregate over forty
-sentences and the naturalness is two sentences that were heard. Those two were
-not locked at any of the three checkpoints on the page: their grid deviations
-run 2.7, 83 and 96 Hz, and 9.7, 34 and 48 Hz, against a criterion of 1.5. The
-aggregate releasing is a fact about the other sentences, so do not read it
-alongside these grades, and do not substitute an aggregate for a sentence.
-
-The two interruptions limit what the round can be read to show; they are not
-an account of why the audio fell short. The output at the cap missed the
-usability bar, and that observation stands on its own. What they do oblige is
-housekeeping before the next run: stop the host killing a save, and decide what
-resume should do about data order. Neither is a reason to repeat these ten
-thousand steps.
-
-The multi-resolution STFT term was then tried on its own. Weight 3, on from
-step 0 in every stage as the code has it, a fresh run from the same base with
-the same schedule, and the previous run's cap checkpoint kept on the page as a
-reference so the comparison would at least be same-session and same-sentence.
-Ten thousand steps with no interruption this time, and two sentences neither
-listener nor page had seen.
-
-The recovery bar cleared: naturalness 3 with the language answer yes on both
-sentences, the duplicated track agreeing exactly on all three axes in both
-rows. Usability did not: the defect grade is 2 on both sentences again. That
-is the whole of the miss -- naturalness and language both held, so the defect
-axis is the only thing standing between this recipe and a usable rendering,
-and the defect-gain item fails on the same score rather than as a second
-finding.
-
-The part worth keeping is the negative. The defect grade came in at 2 on every
-adapted track on that page, including the reference trained without the term,
-and the naturalness grades of the two cap checkpoints were identical as well;
-the one axis where they differed was the language answer on a single sentence,
-which the round's own rule calls undecided. So the page could not tell the two
-runs' caps apart, and the recovery result is not evidence that the term did
-anything.
-
-Read that failure to separate as what it is: a limit of this page. One
-listener, two sentences, and ordinal scales of five and three steps did not
-put the two tracks in different grades. It is not a finding that the two runs
-sound the same, and it is not a finding that the term does nothing -- a
-difference smaller than a grade, or one these axes do not ask about, is not
-ruled out by any of it. Whether this term changes the ringing is not settled
-by one run pair whose training histories differ and whose run-to-run variation
-has never been measured. What is settled is narrower: this setting -- weight 3,
-every stage, from the base export, ten thousand steps -- is not adopted.
-
-The instruments moved while the listening did not, which is the same shape as
-the mel A/B above. The comb excess came out lower for the run with the term
-(5.58 against 6.83 decibels as a median over forty sentences, 5.67 against
-7.87 and 5.28 against 6.32 on the two sentences that were heard) and its
-steady-tone score fell to zero from 14.6 and 15.6. The defect grades are 2 and
-2 either way. Screens that separate two runs are not evidence about what a
-listener hears, and this is the first of the ringing remedies in this record
-to reach a listening verdict at all -- the earlier five were judged on screens
-alone, none of them listened to, all of them before the mel defect was fixed.
-
-The next round asked which path the ringing sits on, with no training. The
-reconstruction of a checkpoint runs the real recording through the posterior
-encoder into the decoder; its inference runs text through the prior encoder,
-the duration predictor and the flow into the same decoder. The two share the
-decoder and nothing else. Both existing caps were rendered both ways and put
-on one page with the recording, on two new sentences, under a ringing axis
-laid on top of the defect axis -- ringing stays counted as a defect; the new
-axis only adds a step above the defect ceiling -- plus a per-row ranking of
-the tracks by how strongly they ring.
-
-Three of the four adapted tracks rang clearly on both sentences: both
-reconstructions and the first run's inference. The second run's inference
-rang clearly on one sentence and faintly on the other. On the grade, what
-failed was a consistent direction across both sentences, not the existence of
-a difference: the index difference was zero on three of the four cells, and
-on the fourth -- the second run, first sentence -- the reconstruction came in
-one grade above the inference. On the ranking the two paths did separate, and
-the direction turned on the sentence rather than the checkpoint: on one
-sentence both reconstructions were ranked above both inferences, on the other
-both inferences above both reconstructions. That direction is read on the
-ranking alone, and the ranking is one ordering per row, so the two
-checkpoints' pairs are two readings of a single ordering rather than
-independent repeats.
-
-Worth carrying forward from the same page: on the first sentence the second
-run's inference was graded one step better than the first run's on both
-defect and ringing, and the ranking put it behind the other inference as
-well. The two are separate pre-declared items and neither supports the other;
-the two runs have different training histories and their run-to-run variation
-is unmeasured, so this is an exploratory contrast and not a claim that the
-extra loss term reduced anything. The listener's own note on the first sentence describes the
-reconstructions ringing continuously from one word onward and the inferences
-ringing on particular words -- one row's words, recorded and not read into
-anything.
-
-The pre-declared map issues nothing here. Its branch for "both paths ring,
-nothing separates them" needed all four tracks at the clear grade on both
-sentences and needed the ranking not to separate them either; the branches
-for "one path rings more" needed one direction across both checkpoints. None
-of that held, so no path is named and no next experiment is recommended --
-the choice returns to the user. Two limits bound the round in any case: a
-reconstruction exercises the posterior as well as the decoder, so a ringing
-reconstruction does not single the decoder out; and a reconstruction inherits
-the recording's timing, so the listener could tell which tracks were
-reconstructions. The one cell that met every usability condition -- the
-second run's inference on the first sentence, at naturalness 4, defect 1,
-language yes -- is one track on one sentence, and is written as that.
-
-After scoring, the listener remarked that the ringing was clearly less than
-in the earlier pages. That is the listener's own impression across sessions,
-recorded as said. The protocol does not line grades up across rounds, so the
-tables neither support nor contradict it, and nothing in the verdict rests on
-it.
-
-One thing to know before reading any two runs against each other: repeating a
-run with the same nominal settings does not reproduce the same trained weights.
-Two runs here were configured identically over their first five hundred steps —
-same seed, same corpus, and options that differ only in values which take effect
-later — and at step 500 every one of the posterior encoder's hundred tensors
-differs between them, by up to 9.4e-03, as does every one of the discriminator's
-hundred and eleven, by up to 5.0e-02, while the four hundred and ten tensors
-held frozen match bit for bit. What produces that variation has not been
-isolated: nothing here separates GPU kernel nondeterminism from mixed precision
-from anything else, and no experiment to do so is planned. Rendering is stable
-by a separate check, the one every round already runs — the same checkpoint
-re-rendered at a fixed seed comes back byte-identical. So a contrast between two
-runs carries this variation alongside whatever was manipulated, its size is
-unmeasured, and a single repeat pair would be one observation of it rather than
-a bound on it. The verdicts already recorded are arithmetic on listened scores
-and do not move. What does not follow is reading a gain of zero as evidence that
-the variation is small, and a verdict that treats a gain of one grade or less as
-its result is weakened by this rather than supported.
-
-Five things were tried and measured under that caveat, and none reduced the
-comb on those screens; none of them was listened to. Gating the generator's
-adversarial term while the decoder is frozen leaves the artifact unchanged and
-raises the latent drift, because that term had been pulling the latents back.
-A reconstruction-only decoder polish raises the artifact while its own reported
-losses fall. Freezing the decoder for the whole run did not prevent the comb in
-that run either; an ablation that never unfroze it showed the comb by step 1000
-with 94 per cent of frames locked to the grid. Unfreezing earlier was worse
-early and no better at the end. Restoring the released decoder at export time
-makes it louder, not quieter.
-
-The cause is therefore still open. The latent drift the investigation first
-blamed does not track the artifact on its own: two runs ending at drift 1.190
-and 1.528 produced 8.15 and 8.27 dB of comb, which rules out a single scalar
-mean as the controlling variable and rules out nothing else about the latents.
-Both the training path and the inference path ring, which shows a mismatch
-between them is not the whole story rather than showing there is none. Treat
-the screens as the reliable part and the explanations as provisional.
-
-Later rounds (2026-09-26 to 09-27, listened, one run each, three sentences per
-page) found one recipe that lowered the ringing grade: every module trained from
-step 0 with the discriminator inherited from the stage-1 checkpoint, and the
-linguistic group at half rate. It was not adopted, because words went missing
-or mushy on one sentence and the listener marked abnormal pitch on every
-sentence. Stepping the discriminator first changed no listening answer. There is
-still no recommended fix.
+The detailed numbers and listening results of the private runs behind this
+section are kept in the private work records (`<work-dir>`). This page keeps the
+definitions of the screens, the code defaults, and the lessons.
 
 ## Output is intelligible but pronunciation is wrong
 
